@@ -1,0 +1,35 @@
+{
+    "name": "nexusphp/mcp-client-sdk",
+    "description": "PHP SDK for the MCP specification - client component.",
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "John Paul E. Balandan, CPA",
+            "email": "paulbalandan@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "nexusphp/assert": "1.x-dev"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/NexusPHP/assert",
+            "canonical": true
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "Nexus\\Mcp\\Client\\": ""
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    }
+}
