@@ -11,15 +11,8 @@
     ],
     "require": {
         "php": "^8.3",
-        "nexusphp/assert": "1.x-dev"
+        "nexusphp/assert": "^1.0"
     },
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/NexusPHP/assert",
-            "canonical": true
-        }
-    ],
     "minimum-stability": "dev",
     "prefer-stable": true,
     "autoload": {
