@@ -13,35 +13,55 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client;
 
-use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
+use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
 use Nexus\Mcp\Core\Schema\Notification\InitializedNotification;
+use Nexus\Mcp\Core\Schema\Prompt\PromptReference;
 use Nexus\Mcp\Core\Schema\ProtocolVersion;
+use Nexus\Mcp\Core\Schema\Request\CompleteRequest;
+use Nexus\Mcp\Core\Schema\Request\GetPromptRequest;
 use Nexus\Mcp\Core\Schema\Request\InitializeRequest;
+use Nexus\Mcp\Core\Schema\Request\ListPromptsRequest;
+use Nexus\Mcp\Core\Schema\Request\ListResourcesRequest;
+use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
+use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
+use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
+use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\InitializeRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
+use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result;
+use Nexus\Mcp\Core\Schema\Result\CompleteResult;
+use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
 use Nexus\Mcp\Core\Schema\Result\InitializeResult;
+use Nexus\Mcp\Core\Schema\Result\ListPromptsResult;
+use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
+use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
+use Nexus\Mcp\Core\Schema\Result\ListToolsResult;
+use Nexus\Mcp\Core\Schema\Result\ReadResourceResult;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Thin shell that drives a single transport's client-side lifecycle. `connect()`
- * attaches the listeners and starts the transport. `initialize()` runs the
- * handshake. `sendRequest()` registers an outbound id, transmits, and awaits
- * the correlated response.
+ * Client-side entry point: drives the transport lifecycle, runs the
+ * `initialize` handshake, and exposes the typed JSON-RPC operations a client
+ * issues against an MCP server.
  */
 final class Client
 {
     private ?TransportInterface $transport = null;
+    private ?Implementation $serverInfo = null;
 
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
@@ -128,7 +148,7 @@ final class Client
             $this->initializationGate->markInitialized();
 
             $result = $response->result;
-            Assert::that($result)->isInstanceOf(InitializeResult::class);
+            $this->serverInfo = $result->serverInfo;
 
             return $result;
         } catch (\Throwable $e) {
@@ -139,12 +159,118 @@ final class Client
     }
 
     /**
+     * Server `Implementation` block captured from the initialize response, or
+     * `null` if the handshake has not completed yet.
+     */
+    public function getServerInfo(): ?Implementation
+    {
+        return $this->serverInfo;
+    }
+
+    /**
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function listTools(?Cursor $cursor = null): ListToolsResult
+    {
+        return $this->sendRequest(
+            new ListToolsRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            ListToolsResult::class,
+        )->result;
+    }
+
+    /**
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function listResources(?Cursor $cursor = null): ListResourcesResult
+    {
+        return $this->sendRequest(
+            new ListResourcesRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            ListResourcesResult::class,
+        )->result;
+    }
+
+    /**
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function listResourceTemplates(?Cursor $cursor = null): ListResourceTemplatesResult
+    {
+        return $this->sendRequest(
+            new ListResourceTemplatesRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            ListResourceTemplatesResult::class,
+        )->result;
+    }
+
+    /**
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function listPrompts(?Cursor $cursor = null): ListPromptsResult
+    {
+        return $this->sendRequest(
+            new ListPromptsRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            ListPromptsResult::class,
+        )->result;
+    }
+
+    /**
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function readResource(string $uri): ReadResourceResult
+    {
+        return $this->sendRequest(
+            new ReadResourceRequest($this->mintRequestId(), new ReadResourceRequestParams($uri)),
+            ReadResourceResult::class,
+        )->result;
+    }
+
+    /**
+     * @param null|array<string, string> $arguments
+     *
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
+    {
+        return $this->sendRequest(
+            new GetPromptRequest($this->mintRequestId(), new GetPromptRequestParams($name, $arguments)),
+            GetPromptResult::class,
+        )->result;
+    }
+
+    /**
+     * @param array{name: string, value: string}            $argument
+     * @param null|array{arguments?: array<string, string>} $context
+     *
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function complete(
+        PromptReference|ResourceTemplateReference $ref,
+        array $argument,
+        ?array $context = null,
+    ): CompleteResult {
+        return $this->sendRequest(
+            new CompleteRequest(
+                $this->mintRequestId(),
+                new CompleteRequestParams($ref, $argument, $context),
+            ),
+            CompleteResult::class,
+        )->result;
+    }
+
+    /**
      * Sends an outbound JSON-RPC request and awaits the correlated response.
      *
-     * @param JsonRpcRequest<non-empty-string> $request
-     * @param class-string<Result>             $result
+     * @template T of Result
      *
-     * @return JsonRpcResultResponse<Result>
+     * @param JsonRpcRequest<non-empty-string> $request
+     * @param class-string<T>                  $result
+     *
+     * @return JsonRpcResultResponse<T>
      *
      * @throws \LogicException
      * @throws TransportAlreadyClosedException
