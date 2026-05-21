@@ -74,7 +74,7 @@ final class Client
         }
 
         $this->logger->info(
-            'Starting MCP client with {transport} client transport.',
+            'Starting MCP client with {transport} transport.',
             ['transport' => $transport->label()],
         );
 
