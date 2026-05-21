@@ -14,11 +14,11 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Dispatch;
 
 use Amp\Cancellation;
-use Amp\Future;
 use Amp\NullCancellation;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\ClientContext;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
+use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Dispatch\RequestBoundSender;
@@ -47,7 +47,6 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 use function Amp\async;
-use function Amp\Future\awaitAll;
 
 /**
  * Client-side per-envelope inbound dispatch. Parses, classifies, and routes:
@@ -59,11 +58,7 @@ use function Amp\Future\awaitAll;
  */
 final readonly class ClientMessageDispatcher implements MessageDispatcherInterface
 {
-    /**
-     * @var \SplObjectStorage<Future<mixed>, null>
-     */
-    private \SplObjectStorage $pending;
-
+    private PendingCoroutines $coroutines;
     private PendingInboundRequests $inboundRequests;
 
     /**
@@ -78,24 +73,14 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         private JsonRpcMessageParser $parser = new JsonRpcMessageParser(),
         private Cancellation $cancellation = new NullCancellation(),
     ) {
-        $this->pending = new \SplObjectStorage();
+        $this->coroutines = new PendingCoroutines();
         $this->inboundRequests = new PendingInboundRequests();
     }
 
     #[\Override]
     public function flushPending(): void
     {
-        awaitAll($this->pending);
-    }
-
-    /**
-     * @return int<0, max>
-     *
-     * @internal
-     */
-    public function inFlightCount(): int
-    {
-        return \count($this->pending);
+        $this->coroutines->flushPending();
     }
 
     /**
@@ -242,7 +227,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             return;
         }
 
-        $this->track(async(function () use ($request, $transport, $method): void {
+        $this->coroutines->track(async(function () use ($request, $transport, $method): void {
             try {
                 $sender = new RequestBoundSender($transport, $request->id);
                 $context = new ClientContext(
@@ -297,7 +282,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             return;
         }
 
-        $this->track(async(function () use ($handler, $notification, $method): void {
+        $this->coroutines->track(async(function () use ($handler, $notification, $method): void {
             try {
                 $handler->handle($notification);
             } catch (\Throwable $e) {
@@ -329,18 +314,6 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             'Skipping response delivery. Transport is closed.',
             ['method' => $method, 'exception' => $exception],
         );
-    }
-
-    /**
-     * @param Future<mixed> $future
-     */
-    private function track(Future $future): void
-    {
-        $this->pending[$future] = null;
-
-        $future->finally(function () use ($future): void {
-            unset($this->pending[$future]);
-        })->ignore();
     }
 
     private static function toErrorResponse(

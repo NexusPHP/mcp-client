@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client;
 
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
@@ -27,8 +28,8 @@ use Psr\Log\NullLogger;
 
 /**
  * Fluent builder that assembles the per-feature handler registries, the
- * client-side dispatch kernel, and the outbound-request correlator into a
- * runnable `Client` instance.
+ * client-side dispatch kernel, the outbound-request correlator, and the
+ * handshake gate into a runnable `Client` instance.
  */
 final class ClientBuilder
 {
@@ -44,6 +45,11 @@ final class ClientBuilder
      * @var array<non-empty-string, NotificationHandlerInterface<non-empty-string>>
      */
     private array $notificationHandlers = [];
+
+    /**
+     * @var null|\Closure(): (int|non-empty-string)
+     */
+    private ?\Closure $requestIdFactory = null;
 
     public function __construct()
     {
@@ -69,6 +75,18 @@ final class ClientBuilder
     public function setLogger(LoggerInterface $logger): self
     {
         $this->logger = $logger;
+
+        return $this;
+    }
+
+    /**
+     * Overrides the default monotonically-incrementing integer factory.
+     *
+     * @param \Closure(): (int|non-empty-string) $factory
+     */
+    public function setRequestIdFactory(\Closure $factory): self
+    {
+        $this->requestIdFactory = $factory;
 
         return $this;
     }
@@ -103,12 +121,13 @@ final class ClientBuilder
     {
         Assert::that($this->clientInfo)->isInstanceOf(
             Implementation::class,
-            'Client info must be set before build() via setClientInfo().',
+            'Client information must be set before build() via setClientInfo().',
         );
 
         $outboundRequests = new PendingOutboundRequests();
 
         return new Client(
+            $this->clientInfo,
             new ClientMessageDispatcher(
                 new HandlerRegistry($this->requestHandlers, RequestHandlerInterface::class, 'Request handler'),
                 new HandlerRegistry($this->notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
@@ -116,7 +135,19 @@ final class ClientBuilder
                 logger: $this->logger,
             ),
             $outboundRequests,
+            new ClientInitializationGate(),
+            $this->requestIdFactory ?? self::defaultRequestIdFactory(),
             $this->logger,
         );
+    }
+
+    /**
+     * @return \Closure(): int
+     */
+    private static function defaultRequestIdFactory(): \Closure
+    {
+        $counter = 0;
+
+        return static fn(): int => ++$counter;
     }
 }
