@@ -30,6 +30,8 @@ use Psr\Log\NullLogger;
  */
 final class StdioClientTransport implements TransportInterface
 {
+    private const string LABEL = 'Stdio client';
+
     private readonly LineDuplex $duplex;
     private readonly LoggerInterface $logger;
     private ?Process $process = null;
@@ -45,13 +47,13 @@ final class StdioClientTransport implements TransportInterface
         LoggerInterface $logger = new NullLogger(),
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
     ) {
-        Assert::that($command)->isList('Stdio client command must be a list, {type} given.');
-        Assert::that(\count($command))->isPositiveInt('Stdio client command must not be empty.');
+        Assert::that($command)->isList(\sprintf('%s command must be a list, {type} given.', self::LABEL));
+        Assert::that(\count($command))->isPositiveInt(\sprintf('%s command must not be empty.', self::LABEL));
 
         $this->logger = $logger;
         $this->duplex = new LineDuplex(
             hostTransport: self::class,
-            label: 'Stdio client',
+            label: self::LABEL,
             logger: $logger,
             maxLineBytes: $maxLineBytes,
             onBeforeClose: function (): void {
@@ -87,8 +89,8 @@ final class StdioClientTransport implements TransportInterface
 
         $this->process = $process;
         $this->logger->info(
-            'Stdio client transport spawned subprocess. Command: {command} (PID {pid}).',
-            ['command' => implode(' ', $this->command), 'pid' => $process->getPid()],
+            '{label} transport spawned subprocess. Command: {command} (PID {pid}).',
+            ['label' => self::LABEL, 'command' => implode(' ', $this->command), 'pid' => $process->getPid()],
         );
 
         $this->duplex->forwardLines(
