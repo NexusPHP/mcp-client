@@ -118,12 +118,6 @@ final class StdioClientTransport implements TransportInterface
     }
 
     #[\Override]
-    public function label(): string
-    {
-        return 'Stdio client';
-    }
-
-    #[\Override]
     public function onMessage(\Closure $listener): SubscriptionInterface
     {
         return $this->duplex->onMessage($listener);

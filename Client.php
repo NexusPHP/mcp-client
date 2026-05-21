@@ -73,10 +73,7 @@ final class Client
             throw new \LogicException('Client is already connected to a transport.');
         }
 
-        $this->logger->info(
-            'Starting MCP client with {transport} transport.',
-            ['transport' => $transport->label()],
-        );
+        $this->logger->info('Starting MCP client.');
 
         $this->transport = $transport;
 
