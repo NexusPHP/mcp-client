@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client;
 
 use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Exception\UnsupportedProtocolVersionException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
@@ -125,6 +126,17 @@ final class Client
     }
 
     /**
+     * Closes the transport and detaches it so a fresh `connect()` can run.
+     * A no-op when the client is not connected.
+     */
+    public function disconnect(): void
+    {
+        $transport = $this->transport;
+        $this->transport = null;
+        $transport?->close();
+    }
+
+    /**
      * Sends `initialize`, awaits the result, then sends `notifications/initialized`.
      *
      * @throws \LogicException
@@ -152,11 +164,19 @@ final class Client
             $future = $this->outboundRequests->register($request->id, InitializeResult::class);
             $this->transport->send($request);
             $response = $future->await();
+            $result = $response->result;
+
+            // Spec: when the negotiated version is one the client cannot speak, it
+            // must not confirm the handshake and SHOULD disconnect.
+            if (ProtocolVersion::LATEST_VERSION !== $result->protocolVersion->version) {
+                $this->disconnect();
+
+                throw new UnsupportedProtocolVersionException($result->protocolVersion);
+            }
 
             $this->transport->send(new InitializedNotification());
             $this->initializationGate->markInitialized();
 
-            $result = $response->result;
             $this->serverInfo = $result->serverInfo;
 
             return $result;
