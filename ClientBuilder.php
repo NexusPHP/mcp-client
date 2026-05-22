@@ -16,12 +16,15 @@ namespace Nexus\Mcp\Client;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
+use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
 use Nexus\Mcp\Core\Schema\Icon;
 use Nexus\Mcp\Core\Schema\Implementation;
+use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 use Nexus\Mcp\Core\Schema\Result;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -50,6 +53,11 @@ final class ClientBuilder
      * @var null|\Closure(): (int|non-empty-string)
      */
     private ?\Closure $requestIdFactory = null;
+
+    /**
+     * @var null|\Closure(): (int|non-empty-string)
+     */
+    private ?\Closure $progressTokenFactory = null;
 
     public function __construct()
     {
@@ -92,6 +100,19 @@ final class ClientBuilder
     }
 
     /**
+     * Overrides the default progress-token factory used by `Client::callTool()`
+     * when an `onProgress` callback is supplied.
+     *
+     * @param \Closure(): (int|non-empty-string) $factory
+     */
+    public function setProgressTokenFactory(\Closure $factory): self
+    {
+        $this->progressTokenFactory = $factory;
+
+        return $this;
+    }
+
+    /**
      * Registers a handler for an inbound request method the peer may send to the client.
      *
      * @param non-empty-string                                                 $method
@@ -125,18 +146,27 @@ final class ClientBuilder
         );
 
         $outboundRequests = new PendingOutboundRequests();
+        $progressListeners = new ProgressListenerRegistry();
+
+        $notificationHandlers = $this->notificationHandlers;
+        $notificationHandlers[ProgressNotification::method()] = new RoutingProgressNotificationHandler(
+            $progressListeners,
+            $notificationHandlers[ProgressNotification::method()] ?? null,
+        );
 
         return new Client(
             $this->clientInfo,
             new ClientMessageDispatcher(
                 new HandlerRegistry($this->requestHandlers, RequestHandlerInterface::class, 'Request handler'),
-                new HandlerRegistry($this->notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
+                new HandlerRegistry($notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
                 $outboundRequests,
                 logger: $this->logger,
             ),
             $outboundRequests,
             new ClientInitializationGate(),
             $this->requestIdFactory ?? self::defaultRequestIdFactory(),
+            $this->progressTokenFactory ?? self::defaultProgressTokenFactory(),
+            $progressListeners,
             $this->logger,
         );
     }
@@ -148,6 +178,20 @@ final class ClientBuilder
     {
         $counter = 0;
 
-        return static fn(): int => ++$counter;
+        return static function () use (&$counter): int {
+            return ++$counter;
+        };
+    }
+
+    /**
+     * @return \Closure(): non-empty-string
+     */
+    private static function defaultProgressTokenFactory(): \Closure
+    {
+        $counter = 0;
+
+        return static function () use (&$counter): string {
+            return \sprintf('progress-%d', ++$counter);
+        };
     }
 }

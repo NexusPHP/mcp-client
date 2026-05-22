@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client;
 
 use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
+use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
@@ -23,8 +24,10 @@ use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
 use Nexus\Mcp\Core\Schema\Notification\InitializedNotification;
+use Nexus\Mcp\Core\Schema\ProgressToken;
 use Nexus\Mcp\Core\Schema\Prompt\PromptReference;
 use Nexus\Mcp\Core\Schema\ProtocolVersion;
+use Nexus\Mcp\Core\Schema\Request\CallToolRequest;
 use Nexus\Mcp\Core\Schema\Request\CompleteRequest;
 use Nexus\Mcp\Core\Schema\Request\GetPromptRequest;
 use Nexus\Mcp\Core\Schema\Request\InitializeRequest;
@@ -34,6 +37,8 @@ use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
+use Nexus\Mcp\Core\Schema\RequestMetaObject;
+use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\InitializeRequestParams;
@@ -41,6 +46,7 @@ use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result;
+use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
 use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
 use Nexus\Mcp\Core\Schema\Result\InitializeResult;
@@ -65,6 +71,7 @@ final class Client
 
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
+     * @param \Closure(): (int|non-empty-string) $progressTokenFactory
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -72,6 +79,8 @@ final class Client
         private readonly PendingOutboundRequests $outboundRequests,
         private readonly ClientInitializationGate $initializationGate,
         private readonly \Closure $requestIdFactory,
+        private readonly \Closure $progressTokenFactory,
+        private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
@@ -263,6 +272,46 @@ final class Client
     }
 
     /**
+     * Invokes a tool. When `$onProgress` is given, a fresh `progressToken` is
+     * minted into the request's `_meta` and the callback receives every
+     * matching `notifications/progress` for the duration of the call.
+     *
+     * @param null|array<string, mixed>                                             $arguments
+     * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
+     *
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult
+    {
+        if (null === $onProgress) {
+            return $this->sendRequest(
+                new CallToolRequest($this->mintRequestId(), new CallToolRequestParams($name, $arguments)),
+                CallToolResult::class,
+            )->result;
+        }
+
+        $progressToken = $this->mintProgressToken();
+        $this->progressListeners->register($progressToken, $onProgress);
+
+        try {
+            return $this->sendRequest(
+                new CallToolRequest(
+                    $this->mintRequestId(),
+                    new CallToolRequestParams(
+                        $name,
+                        $arguments,
+                        meta: new RequestMetaObject(progressToken: $progressToken),
+                    ),
+                ),
+                CallToolResult::class,
+            )->result;
+        } finally {
+            $this->progressListeners->unregister($progressToken);
+        }
+    }
+
+    /**
      * Sends an outbound JSON-RPC request and awaits the correlated response.
      *
      * @template T of Result
@@ -299,5 +348,10 @@ final class Client
     private function mintRequestId(): RequestId
     {
         return new RequestId(($this->requestIdFactory)());
+    }
+
+    private function mintProgressToken(): ProgressToken
+    {
+        return new ProgressToken(($this->progressTokenFactory)());
     }
 }
