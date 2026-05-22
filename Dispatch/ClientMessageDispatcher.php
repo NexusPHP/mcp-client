@@ -15,7 +15,6 @@ namespace Nexus\Mcp\Client\Dispatch;
 
 use Amp\Cancellation;
 use Amp\NullCancellation;
-use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\ClientContext;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
@@ -201,14 +200,13 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         }
 
         try {
+            /** @var JsonRpcResultResponse<Result> $response */
             $response = $this->parser->parse($envelope, $resultClass);
         } catch (\Throwable $e) {
             $this->outboundRequests->reject($peeked->id, $e);
 
             return;
         }
-
-        Assert::that($response)->isInstanceOf(JsonRpcResultResponse::class);
 
         $this->outboundRequests->resolve($peeked->id, $response);
     }
