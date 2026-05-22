@@ -36,11 +36,13 @@ use Nexus\Mcp\Core\Schema\Request\ListPromptsRequest;
 use Nexus\Mcp\Core\Schema\Request\ListResourcesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
+use Nexus\Mcp\Core\Schema\Request\PingRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\RequestMetaObject;
 use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\InitializeRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
@@ -49,6 +51,7 @@ use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
+use Nexus\Mcp\Core\Schema\Result\EmptyResult;
 use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
 use Nexus\Mcp\Core\Schema\Result\InitializeResult;
 use Nexus\Mcp\Core\Schema\Result\ListPromptsResult;
@@ -134,6 +137,21 @@ final class Client
         $transport = $this->transport;
         $this->transport = null;
         $transport?->close();
+    }
+
+    /**
+     * Sends a `ping` and awaits the peer's empty acknowledgement. Permitted
+     * before the handshake completes.
+     *
+     * @throws \LogicException
+     * @throws TransportAlreadyClosedException
+     */
+    public function ping(): void
+    {
+        $this->sendRequest(
+            new PingRequest($this->mintRequestId(), new EmptyRequestParams()),
+            EmptyResult::class,
+        );
     }
 
     /**
