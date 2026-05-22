@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Transport;
 
 use Amp\Process\Process;
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Core\JsonRpc\SafeDisplay;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Transport\LineDuplex;
 use Nexus\Mcp\Core\Transport\LineReader;
@@ -96,7 +97,7 @@ final class StdioClientTransport implements TransportInterface
         $this->duplex->forwardLines(
             $process->getStderr(),
             function (string $line): void {
-                $this->logger->info('Subprocess stderr: {line}', ['line' => $line]);
+                $this->logger->info('Subprocess stderr: {line}', ['line' => SafeDisplay::sanitise($line)]);
             },
         );
     }
