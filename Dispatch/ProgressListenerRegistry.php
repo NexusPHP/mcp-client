@@ -25,7 +25,7 @@ use Nexus\Mcp\Core\Schema\ProgressToken;
 final class ProgressListenerRegistry
 {
     /**
-     * @var array<int|non-empty-string, \Closure(float, ?float, ?string): void>
+     * @var array<non-empty-string, \Closure(float, ?float, ?string): void>
      */
     private array $listeners = [];
 
@@ -34,12 +34,12 @@ final class ProgressListenerRegistry
      */
     public function register(ProgressToken $token, \Closure $onProgress): void
     {
-        $this->listeners[$token->token] = $onProgress;
+        $this->listeners[self::key($token)] = $onProgress;
     }
 
     public function unregister(ProgressToken $token): void
     {
-        unset($this->listeners[$token->token]);
+        unset($this->listeners[self::key($token)]);
     }
 
     /**
@@ -47,6 +47,14 @@ final class ProgressListenerRegistry
      */
     public function get(ProgressToken $token): ?\Closure
     {
-        return $this->listeners[$token->token] ?? null;
+        return $this->listeners[self::key($token)] ?? null;
+    }
+
+    /**
+     * @return non-empty-string
+     */
+    private static function key(ProgressToken $token): string
+    {
+        return \sprintf('"progressToken":%s', var_export($token->token, true));
     }
 }
