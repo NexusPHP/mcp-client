@@ -21,10 +21,12 @@ use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
+use Nexus\Mcp\Core\Handler\Request\PingRequestHandler;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
 use Nexus\Mcp\Core\Schema\Icon;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
+use Nexus\Mcp\Core\Schema\Request\PingRequest;
 use Nexus\Mcp\Core\Schema\Result;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -148,16 +150,20 @@ final class ClientBuilder
         $outboundRequests = new PendingOutboundRequests();
         $progressListeners = new ProgressListenerRegistry();
 
+        $requestHandlers = $this->requestHandlers;
+        $requestHandlers[PingRequest::method()] ??= new PingRequestHandler();
+
         $notificationHandlers = $this->notificationHandlers;
         $notificationHandlers[ProgressNotification::method()] = new RoutingProgressNotificationHandler(
             $progressListeners,
+            // register the custom progress handler as fallback
             $notificationHandlers[ProgressNotification::method()] ?? null,
         );
 
         return new Client(
             $this->clientInfo,
             new ClientMessageDispatcher(
-                new HandlerRegistry($this->requestHandlers, RequestHandlerInterface::class, 'Request handler'),
+                new HandlerRegistry($requestHandlers, RequestHandlerInterface::class, 'Request handler'),
                 new HandlerRegistry($notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
                 $outboundRequests,
                 logger: $this->logger,
