@@ -15,6 +15,10 @@ namespace Nexus\Mcp\Client;
 
 use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
+use Nexus\Mcp\Client\Exception\ClientAlreadyInitializedException;
+use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
+use Nexus\Mcp\Client\Exception\ClientNotInitializedException;
 use Nexus\Mcp\Client\Exception\UnsupportedProtocolVersionException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
@@ -100,13 +104,13 @@ final class Client
     /**
      * Non-blocking connect to the transport.
      *
-     * @throws \LogicException
+     * @throws ClientAlreadyConnectedException
      */
     public function connect(TransportInterface $transport): void
     {
         if (null !== $this->transport) {
             // Reject reentry to avoid orphaning the previous transport.
-            throw new \LogicException('Client is already connected to a transport.');
+            throw new ClientAlreadyConnectedException();
         }
 
         $this->logger->info('Starting MCP client.');
@@ -146,7 +150,7 @@ final class Client
      * Sends a `ping` and awaits the peer's empty acknowledgement. Permitted
      * before the handshake completes.
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
      * @throws TransportAlreadyClosedException
      */
     public function ping(): void
@@ -160,7 +164,8 @@ final class Client
     /**
      * Sends `initialize`, awaits the result, then sends `notifications/initialized`.
      *
-     * @throws \LogicException
+     * @throws ClientAlreadyInitializedException
+     * @throws ClientNotConnectedException
      * @throws TransportAlreadyClosedException
      */
     public function initialize(
@@ -168,11 +173,11 @@ final class Client
         ?ProtocolVersion $protocolVersion = null,
     ): InitializeResult {
         if (null === $this->transport) {
-            throw new \LogicException('Client is not connected. Call connect() first.');
+            throw new ClientNotConnectedException();
         }
 
         if (! $this->initializationGate->markInitializeInFlight()) {
-            throw new \LogicException('Client handshake already started or completed.');
+            throw new ClientAlreadyInitializedException();
         }
 
         try {
@@ -218,7 +223,8 @@ final class Client
     }
 
     /**
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function listTools(?Cursor $cursor = null): ListToolsResult
@@ -230,7 +236,8 @@ final class Client
     }
 
     /**
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function listResources(?Cursor $cursor = null): ListResourcesResult
@@ -242,7 +249,8 @@ final class Client
     }
 
     /**
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function listResourceTemplates(?Cursor $cursor = null): ListResourceTemplatesResult
@@ -254,7 +262,8 @@ final class Client
     }
 
     /**
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function listPrompts(?Cursor $cursor = null): ListPromptsResult
@@ -266,7 +275,8 @@ final class Client
     }
 
     /**
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function readResource(string $uri): ReadResourceResult
@@ -280,7 +290,8 @@ final class Client
     /**
      * @param null|array<string, string> $arguments
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
@@ -295,7 +306,8 @@ final class Client
      * @param array{name: string, value: string}            $argument
      * @param null|array{arguments?: array<string, string>} $context
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function complete(
@@ -320,7 +332,8 @@ final class Client
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult
@@ -355,7 +368,8 @@ final class Client
     /**
      * Sets the minimum severity the server should emit via `logging/setLevel`.
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function setLoggingLevel(LoggingLevel $level): void
@@ -376,22 +390,20 @@ final class Client
      *
      * @return JsonRpcResultResponse<T>
      *
-     * @throws \LogicException
+     * @throws ClientNotConnectedException
+     * @throws ClientNotInitializedException
      * @throws TransportAlreadyClosedException
      */
     public function sendRequest(JsonRpcRequest $request, string $result): JsonRpcResultResponse
     {
         if (null === $this->transport) {
-            throw new \LogicException('Client is not connected. Call connect() first.');
+            throw new ClientNotConnectedException();
         }
 
         $method = $request::method();
 
         if (! $this->initializationGate->allowsRequest($method)) {
-            throw new \LogicException(\sprintf(
-                'Request method "%s" cannot be sent before the client handshake completes.',
-                $method,
-            ));
+            throw new ClientNotInitializedException($method);
         }
 
         $future = $this->outboundRequests->register($request->id, $result);
