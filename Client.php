@@ -19,6 +19,7 @@ use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
 use Nexus\Mcp\Client\Exception\ClientAlreadyInitializedException;
 use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ClientNotInitializedException;
+use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Client\Exception\UnsupportedProtocolVersionException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
@@ -66,6 +67,7 @@ use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
 use Nexus\Mcp\Core\Schema\Result\ListToolsResult;
 use Nexus\Mcp\Core\Schema\Result\ReadResourceResult;
+use Nexus\Mcp\Core\Schema\ServerCapabilities;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -79,6 +81,7 @@ final class Client
 {
     private ?TransportInterface $transport = null;
     private ?Implementation $serverInfo = null;
+    private ?ServerCapabilities $serverCapabilities = null;
 
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
@@ -147,6 +150,24 @@ final class Client
     }
 
     /**
+     * Server `Implementation` block captured from the initialize response, or
+     * `null` if the handshake has not completed yet.
+     */
+    public function getServerInfo(): ?Implementation
+    {
+        return $this->serverInfo;
+    }
+
+    /**
+     * Server capabilities negotiated during the initialize response, or `null` if
+     * the handshake has not completed yet.
+     */
+    public function getServerCapabilities(): ?ServerCapabilities
+    {
+        return $this->serverCapabilities;
+    }
+
+    /**
      * Sends a `ping` and awaits the peer's empty acknowledgement. Permitted
      * before the handshake completes.
      *
@@ -204,6 +225,7 @@ final class Client
             $this->initializationGate->markInitialized();
 
             $this->serverInfo = $result->serverInfo;
+            $this->serverCapabilities = $result->capabilities;
 
             return $result;
         } catch (\Throwable $e) {
@@ -214,17 +236,9 @@ final class Client
     }
 
     /**
-     * Server `Implementation` block captured from the initialize response, or
-     * `null` if the handshake has not completed yet.
-     */
-    public function getServerInfo(): ?Implementation
-    {
-        return $this->serverInfo;
-    }
-
-    /**
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listTools(?Cursor $cursor = null): ListToolsResult
@@ -238,6 +252,7 @@ final class Client
     /**
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listResources(?Cursor $cursor = null): ListResourcesResult
@@ -251,6 +266,7 @@ final class Client
     /**
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listResourceTemplates(?Cursor $cursor = null): ListResourceTemplatesResult
@@ -264,6 +280,7 @@ final class Client
     /**
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listPrompts(?Cursor $cursor = null): ListPromptsResult
@@ -277,6 +294,7 @@ final class Client
     /**
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function readResource(string $uri): ReadResourceResult
@@ -292,6 +310,7 @@ final class Client
      *
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
@@ -308,6 +327,7 @@ final class Client
      *
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function complete(
@@ -334,6 +354,7 @@ final class Client
      *
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult
@@ -370,6 +391,7 @@ final class Client
      *
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function setLoggingLevel(LoggingLevel $level): void
@@ -392,11 +414,14 @@ final class Client
      *
      * @throws ClientNotConnectedException
      * @throws ClientNotInitializedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function sendRequest(JsonRpcRequest $request, string $result): JsonRpcResultResponse
     {
-        if (null === $this->transport) {
+        $transport = $this->transport;
+
+        if (null === $transport) {
             throw new ClientNotConnectedException();
         }
 
@@ -406,10 +431,40 @@ final class Client
             throw new ClientNotInitializedException($method);
         }
 
+        $this->assertServerSupports($method);
+
         $future = $this->outboundRequests->register($request->id, $result);
-        $this->transport->send($request);
+        $transport->send($request);
 
         return $future->await();
+    }
+
+    /**
+     * @throws ServerCapabilityNotSupportedException
+     */
+    private function assertServerSupports(string $method): void
+    {
+        $capabilities = $this->serverCapabilities;
+
+        if (null === $capabilities) {
+            // Before the handshake there are no negotiated capabilities to enforce.
+            return;
+        }
+
+        $supported = match ($method) {
+            ListToolsRequest::method(), CallToolRequest::method() => null !== $capabilities->tools,
+            ListResourcesRequest::method(),
+            ListResourceTemplatesRequest::method(),
+            ReadResourceRequest::method() => null !== $capabilities->resources,
+            ListPromptsRequest::method(), GetPromptRequest::method() => null !== $capabilities->prompts,
+            CompleteRequest::method() => null !== $capabilities->completions,
+            SetLevelRequest::method() => null !== $capabilities->logging,
+            default => true,
+        };
+
+        if (! $supported) {
+            throw new ServerCapabilityNotSupportedException($method);
+        }
     }
 
     private function mintRequestId(): RequestId
