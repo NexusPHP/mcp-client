@@ -33,18 +33,40 @@ final class StdioClientTransport implements TransportInterface
 {
     private const string LABEL = 'Stdio client';
 
+    /**
+     * Environment variable names safe to inherit by default, across POSIX and Windows hosts.
+     */
+    private const array INHERITED_ENV_NAMES = [
+        'APPDATA',
+        'HOME',
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'LOCALAPPDATA',
+        'LOGNAME',
+        'PATH',
+        'PROCESSOR_ARCHITECTURE',
+        'SHELL',
+        'SYSTEMDRIVE',
+        'SYSTEMROOT',
+        'TEMP',
+        'TERM',
+        'USER',
+        'USERNAME',
+        'USERPROFILE',
+    ];
+
     private readonly LineDuplex $duplex;
     private readonly LoggerInterface $logger;
     private ?Process $process = null;
 
     /**
-     * @param list<string>          $command Subprocess argv (no shell interpretation).
-     * @param array<string, string> $env     Empty inherits the parent process environment.
+     * @param list<string>               $command Subprocess argv (no shell interpretation).
+     * @param null|array<string, string> $env     Subprocess environment (`null` prunes to a safe allowlist).
      */
     public function __construct(
         private readonly array $command,
         private readonly ?string $workingDirectory = null,
-        private readonly array $env = [],
+        private readonly ?array $env = null,
         LoggerInterface $logger = new NullLogger(),
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
     ) {
@@ -71,10 +93,43 @@ final class StdioClientTransport implements TransportInterface
         );
     }
 
+    /**
+     * Builds the pruned default subprocess environment: the inherited-name allowlist
+     * populated from `$source`, skipping values that look like exported shell functions.
+     *
+     * @internal
+     *
+     * @param null|array<string, string> $source Defaults to the parent process environment.
+     *
+     * @return array<string, string>
+     */
+    public static function defaultEnvironment(?array $source = null): array
+    {
+        $source ??= getenv();
+        $environment = [];
+
+        foreach (self::INHERITED_ENV_NAMES as $name) {
+            $value = $source[$name] ?? null;
+
+            if (null === $value) {
+                continue;
+            }
+
+            if (str_starts_with($value, '()')) {
+                // Skip exported shell-function definitions (Shellshock mitigation).
+                continue;
+            }
+
+            $environment[$name] = $value;
+        }
+
+        return $environment;
+    }
+
     #[\Override]
     public function start(): void
     {
-        $process = Process::start($this->command, $this->workingDirectory, $this->env);
+        $process = Process::start($this->command, $this->workingDirectory, $this->env ?? self::defaultEnvironment());
 
         try {
             $this->duplex->start($process->getStdout(), $process->getStdin());
