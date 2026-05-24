@@ -85,10 +85,7 @@ final class StdioClientTransport implements TransportInterface
                 }
 
                 $this->process->getStdin()->close();
-
-                if ($this->process->isRunning()) {
-                    $this->process->signal(\SIGKILL);
-                }
+                $this->process->kill();
             },
         );
     }
@@ -135,10 +132,7 @@ final class StdioClientTransport implements TransportInterface
             $this->duplex->start($process->getStdout(), $process->getStdin());
         } catch (\Throwable $e) {
             $process->getStdin()->close();
-
-            if ($process->isRunning()) {
-                $process->signal(\SIGKILL);
-            }
+            $process->kill();
 
             throw $e;
         }
