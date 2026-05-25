@@ -114,7 +114,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 return;
             }
 
-            $this->responseSender->send($transport, ResponseSender::toErrorResponse($e, null), 'misrouted');
+            $this->responseSender->send($transport, ResponseSender::buildErrorResponse($e, null), 'misrouted');
 
             return;
         } catch (AbstractJsonRpcProtocolException $e) {
@@ -127,7 +127,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 return;
             }
 
-            $this->responseSender->send($transport, ResponseSender::toErrorResponse($e, null), 'parse-error');
+            $this->responseSender->send($transport, ResponseSender::buildErrorResponse($e, null), 'parse-error');
 
             return;
         }
@@ -188,7 +188,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
      */
     private function dispatchSuccessResponse(array $envelope, UnparsedResultEnvelope $peeked): void
     {
-        $resultClass = $this->outboundRequests->resultClassFor($peeked->id);
+        $resultClass = $this->outboundRequests->resolveResultClass($peeked->id);
 
         if (null === $resultClass) {
             $this->logger->warning(
@@ -216,11 +216,11 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
      */
     private function dispatchRequest(JsonRpcRequest $request, TransportInterface $transport): void
     {
-        $method = $request::method();
+        $method = $request::getMethod();
 
         if (! $this->inboundRequests->claim($request->id)) {
             $exception = new DuplicateInboundRequestIdException($request->id);
-            $this->responseSender->send($transport, ResponseSender::toErrorResponse($exception, $request->id), $method);
+            $this->responseSender->send($transport, ResponseSender::buildErrorResponse($exception, $request->id), $method);
 
             return;
         }
@@ -232,7 +232,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                     $request->id,
                     $this->cancellation,
                     $request->params->meta,
-                    $transport->sessionId(),
+                    $transport->getSessionId(),
                     $sender,
                 );
 
@@ -245,7 +245,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
                     return;
                 } catch (AbstractJsonRpcProtocolException $e) {
-                    $this->responseSender->send($transport, ResponseSender::toErrorResponse($e, $request->id), $method);
+                    $this->responseSender->send($transport, ResponseSender::buildErrorResponse($e, $request->id), $method);
 
                     return;
                 } catch (\Throwable $e) {
@@ -273,7 +273,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
      */
     private function dispatchNotification(JsonRpcNotification $notification): void
     {
-        $method = $notification::method();
+        $method = $notification::getMethod();
         $handler = $this->notificationHandlers->get($method);
 
         if (null === $handler) {

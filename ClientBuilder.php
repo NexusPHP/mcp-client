@@ -151,13 +151,13 @@ final class ClientBuilder
         $progressListeners = new ProgressListenerRegistry();
 
         $requestHandlers = $this->requestHandlers;
-        $requestHandlers[PingRequest::method()] ??= new PingRequestHandler();
+        $requestHandlers[PingRequest::getMethod()] ??= new PingRequestHandler();
 
         $notificationHandlers = $this->notificationHandlers;
-        $notificationHandlers[ProgressNotification::method()] = new RoutingProgressNotificationHandler(
+        $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
             $progressListeners,
             // register the custom progress handler as fallback
-            $notificationHandlers[ProgressNotification::method()] ?? null,
+            $notificationHandlers[ProgressNotification::getMethod()] ?? null,
         );
 
         return new Client(
@@ -170,8 +170,8 @@ final class ClientBuilder
             ),
             $outboundRequests,
             new ClientInitializationGate(),
-            $this->requestIdFactory ?? self::defaultRequestIdFactory(),
-            $this->progressTokenFactory ?? self::defaultProgressTokenFactory(),
+            $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),
+            $this->progressTokenFactory ?? self::buildDefaultProgressTokenFactory(),
             $progressListeners,
             $this->logger,
         );
@@ -180,7 +180,7 @@ final class ClientBuilder
     /**
      * @return \Closure(): int
      */
-    private static function defaultRequestIdFactory(): \Closure
+    private static function buildDefaultRequestIdFactory(): \Closure
     {
         $counter = 0;
 
@@ -192,7 +192,7 @@ final class ClientBuilder
     /**
      * @return \Closure(): non-empty-string
      */
-    private static function defaultProgressTokenFactory(): \Closure
+    private static function buildDefaultProgressTokenFactory(): \Closure
     {
         $counter = 0;
 

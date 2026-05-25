@@ -34,12 +34,12 @@ final class ProgressListenerRegistry
      */
     public function register(ProgressToken $token, \Closure $onProgress): void
     {
-        $this->listeners[self::key($token)] = $onProgress;
+        $this->listeners[self::buildKey($token)] = $onProgress;
     }
 
     public function unregister(ProgressToken $token): void
     {
-        unset($this->listeners[self::key($token)]);
+        unset($this->listeners[self::buildKey($token)]);
     }
 
     /**
@@ -47,13 +47,13 @@ final class ProgressListenerRegistry
      */
     public function get(ProgressToken $token): ?\Closure
     {
-        return $this->listeners[self::key($token)] ?? null;
+        return $this->listeners[self::buildKey($token)] ?? null;
     }
 
     /**
      * @return non-empty-string
      */
-    private static function key(ProgressToken $token): string
+    private static function buildKey(ProgressToken $token): string
     {
         return \sprintf('"progressToken":%s', var_export($token->token, true));
     }

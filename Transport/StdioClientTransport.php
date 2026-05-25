@@ -100,7 +100,7 @@ final class StdioClientTransport implements TransportInterface
      *
      * @return array<string, string>
      */
-    public static function defaultEnvironment(?array $source = null): array
+    public static function buildDefaultEnvironment(?array $source = null): array
     {
         $source ??= getenv();
         $environment = [];
@@ -126,7 +126,7 @@ final class StdioClientTransport implements TransportInterface
     #[\Override]
     public function start(): void
     {
-        $process = Process::start($this->command, $this->workingDirectory, $this->env ?? self::defaultEnvironment());
+        $process = Process::start($this->command, $this->workingDirectory, $this->env ?? self::buildDefaultEnvironment());
 
         try {
             $this->duplex->start($process->getStdout(), $process->getStdin());
@@ -164,7 +164,7 @@ final class StdioClientTransport implements TransportInterface
     }
 
     #[\Override]
-    public function sessionId(): ?string
+    public function getSessionId(): ?string
     {
         return null;
     }

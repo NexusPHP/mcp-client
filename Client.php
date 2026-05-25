@@ -99,11 +99,6 @@ final class Client
     ) {
     }
 
-    public static function builder(): ClientBuilder
-    {
-        return new ClientBuilder();
-    }
-
     /**
      * Non-blocking connect to the transport.
      *
@@ -425,7 +420,7 @@ final class Client
             throw new ClientNotConnectedException();
         }
 
-        $method = $request::method();
+        $method = $request::getMethod();
 
         if (! $this->initializationGate->allowsRequest($method)) {
             throw new ClientNotInitializedException($method);
@@ -452,13 +447,13 @@ final class Client
         }
 
         $supported = match ($method) {
-            ListToolsRequest::method(), CallToolRequest::method() => null !== $capabilities->tools,
-            ListResourcesRequest::method(),
-            ListResourceTemplatesRequest::method(),
-            ReadResourceRequest::method() => null !== $capabilities->resources,
-            ListPromptsRequest::method(), GetPromptRequest::method() => null !== $capabilities->prompts,
-            CompleteRequest::method() => null !== $capabilities->completions,
-            SetLevelRequest::method() => null !== $capabilities->logging,
+            ListToolsRequest::getMethod(), CallToolRequest::getMethod() => null !== $capabilities->tools,
+            ListResourcesRequest::getMethod(),
+            ListResourceTemplatesRequest::getMethod(),
+            ReadResourceRequest::getMethod() => null !== $capabilities->resources,
+            ListPromptsRequest::getMethod(), GetPromptRequest::getMethod() => null !== $capabilities->prompts,
+            CompleteRequest::getMethod() => null !== $capabilities->completions,
+            SetLevelRequest::getMethod() => null !== $capabilities->logging,
             default => true,
         };
 
