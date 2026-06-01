@@ -204,7 +204,17 @@ final class Client
             );
 
             $future = $this->outboundRequests->register($request->id, InitializeResult::class);
-            $this->transport->send($request);
+
+            try {
+                $this->transport->send($request);
+            } catch (\Throwable $e) {
+                // A failed send leaves the registration with no awaiter and no
+                // response to correlate, so free the slot before propagating.
+                $this->outboundRequests->forget($request->id);
+
+                throw $e;
+            }
+
             $response = $future->await();
             $result = $response->result;
 
@@ -429,7 +439,16 @@ final class Client
         $this->assertServerSupports($method);
 
         $future = $this->outboundRequests->register($request->id, $result);
-        $transport->send($request);
+
+        try {
+            $transport->send($request);
+        } catch (\Throwable $e) {
+            // A failed send leaves the registration with no awaiter and no
+            // response to correlate, so free the slot before propagating.
+            $this->outboundRequests->forget($request->id);
+
+            throw $e;
+        }
 
         return $future->await();
     }
