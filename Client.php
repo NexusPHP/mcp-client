@@ -26,7 +26,6 @@ use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
-use Nexus\Mcp\Core\Schema\Enum\LoggingLevel;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
@@ -44,7 +43,6 @@ use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
 use Nexus\Mcp\Core\Schema\Request\PingRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
-use Nexus\Mcp\Core\Schema\Request\SetLevelRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\RequestMetaObject;
 use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
@@ -54,7 +52,6 @@ use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\InitializeRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
-use Nexus\Mcp\Core\Schema\RequestParams\SetLevelRequestParams;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
@@ -392,22 +389,6 @@ final class Client
     }
 
     /**
-     * Sets the minimum severity the server should emit via `logging/setLevel`.
-     *
-     * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
-     * @throws ServerCapabilityNotSupportedException
-     * @throws TransportAlreadyClosedException
-     */
-    public function setLoggingLevel(LoggingLevel $level): void
-    {
-        $this->sendRequest(
-            new SetLevelRequest($this->mintRequestId(), new SetLevelRequestParams($level)),
-            EmptyResult::class,
-        );
-    }
-
-    /**
      * Sends an outbound JSON-RPC request and awaits the correlated response.
      *
      * @template T of Result
@@ -472,7 +453,6 @@ final class Client
             ReadResourceRequest::getMethod() => null !== $capabilities->resources,
             ListPromptsRequest::getMethod(), GetPromptRequest::getMethod() => null !== $capabilities->prompts,
             CompleteRequest::getMethod() => null !== $capabilities->completions,
-            SetLevelRequest::getMethod() => null !== $capabilities->logging,
             default => true,
         };
 
