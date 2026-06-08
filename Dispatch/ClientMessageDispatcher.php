@@ -38,6 +38,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcErrorResponse;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
+use Nexus\Mcp\Core\Schema\RequestParams;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
@@ -228,10 +229,17 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         $this->coroutines->track(async(function () use ($request, $transport, $method): void {
             try {
                 $sender = new RequestBoundSender($transport, $request->id);
+
+                // Server-to-client requests carry no client `_meta`. Only the heavy
+                // `RequestParams` exposes a progress token; standalone params do not.
+                $progressToken = $request->params instanceof RequestParams
+                    ? $request->params->meta->progressToken
+                    : null;
+
                 $context = new ClientContext(
                     $request->id,
                     $this->cancellation,
-                    $request->params->meta,
+                    $progressToken,
                     $transport->getSessionId(),
                     $sender,
                 );

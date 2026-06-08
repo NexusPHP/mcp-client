@@ -14,31 +14,30 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client;
 
 use Nexus\Assert\Assert;
-use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
-use Nexus\Mcp\Core\Handler\Request\PingRequestHandler;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
+use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Icon;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
-use Nexus\Mcp\Core\Schema\Request\PingRequest;
 use Nexus\Mcp\Core\Schema\Result;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
  * Fluent builder that assembles the per-feature handler registries, the
- * client-side dispatch kernel, the outbound-request correlator, and the
- * handshake gate into a runnable `Client` instance.
+ * client-side dispatch kernel, and the outbound-request correlator into a
+ * runnable `Client` instance.
  */
 final class ClientBuilder
 {
     private ?Implementation $clientInfo = null;
+    private ClientCapabilities $clientCapabilities;
     private LoggerInterface $logger;
 
     /**
@@ -63,6 +62,7 @@ final class ClientBuilder
 
     public function __construct()
     {
+        $this->clientCapabilities = new ClientCapabilities();
         $this->logger = new NullLogger();
     }
 
@@ -78,6 +78,16 @@ final class ClientBuilder
         ?array $icons = null,
     ): self {
         $this->clientInfo = new Implementation($name, $version, $title, $description, $websiteUrl, $icons);
+
+        return $this;
+    }
+
+    /**
+     * Declares the capabilities advertised in every request's `_meta` envelope.
+     */
+    public function setClientCapabilities(ClientCapabilities $capabilities): self
+    {
+        $this->clientCapabilities = $capabilities;
 
         return $this;
     }
@@ -151,7 +161,6 @@ final class ClientBuilder
         $progressListeners = new ProgressListenerRegistry();
 
         $requestHandlers = $this->requestHandlers;
-        $requestHandlers[PingRequest::getMethod()] ??= new PingRequestHandler();
 
         $notificationHandlers = $this->notificationHandlers;
         $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
@@ -162,6 +171,7 @@ final class ClientBuilder
 
         return new Client(
             $this->clientInfo,
+            $this->clientCapabilities,
             new ClientMessageDispatcher(
                 new HandlerRegistry($requestHandlers, RequestHandlerInterface::class, 'Request handler'),
                 new HandlerRegistry($notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
@@ -169,11 +179,10 @@ final class ClientBuilder
                 logger: $this->logger,
             ),
             $outboundRequests,
-            new ClientInitializationGate(),
             $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),
             $this->progressTokenFactory ?? self::buildDefaultProgressTokenFactory(),
-            $progressListeners,
-            $this->logger,
+            progressListeners: $progressListeners,
+            logger: $this->logger,
         );
     }
 

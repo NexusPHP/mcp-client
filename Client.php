@@ -13,14 +13,10 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client;
 
-use Nexus\Mcp\Client\Dispatch\ClientInitializationGate;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
-use Nexus\Mcp\Client\Exception\ClientAlreadyInitializedException;
 use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
-use Nexus\Mcp\Client\Exception\ClientNotInitializedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
-use Nexus\Mcp\Client\Exception\UnsupportedProtocolVersionException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
@@ -29,19 +25,17 @@ use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
-use Nexus\Mcp\Core\Schema\Notification\InitializedNotification;
 use Nexus\Mcp\Core\Schema\ProgressToken;
 use Nexus\Mcp\Core\Schema\Prompt\PromptReference;
 use Nexus\Mcp\Core\Schema\ProtocolVersion;
 use Nexus\Mcp\Core\Schema\Request\CallToolRequest;
 use Nexus\Mcp\Core\Schema\Request\CompleteRequest;
+use Nexus\Mcp\Core\Schema\Request\DiscoverRequest;
 use Nexus\Mcp\Core\Schema\Request\GetPromptRequest;
-use Nexus\Mcp\Core\Schema\Request\InitializeRequest;
 use Nexus\Mcp\Core\Schema\Request\ListPromptsRequest;
 use Nexus\Mcp\Core\Schema\Request\ListResourcesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
-use Nexus\Mcp\Core\Schema\Request\PingRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\RequestMetaObject;
@@ -49,16 +43,14 @@ use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
-use Nexus\Mcp\Core\Schema\RequestParams\InitializeRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
-use Nexus\Mcp\Core\Schema\Result\EmptyResult;
+use Nexus\Mcp\Core\Schema\Result\DiscoverResult;
 use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
-use Nexus\Mcp\Core\Schema\Result\InitializeResult;
 use Nexus\Mcp\Core\Schema\Result\ListPromptsResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
@@ -70,9 +62,8 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Client-side entry point: drives the transport lifecycle, runs the
- * `initialize` handshake, and exposes the typed JSON-RPC operations a client
- * issues against an MCP server.
+ * Client-side entry point: drives the transport lifecycle and exposes the typed
+ * JSON-RPC operations a client issues against an MCP server.
  */
 final class Client
 {
@@ -86,11 +77,12 @@ final class Client
      */
     public function __construct(
         private readonly Implementation $clientInfo,
+        private readonly ClientCapabilities $clientCapabilities,
         private readonly MessageDispatcherInterface $dispatcher,
         private readonly PendingOutboundRequests $outboundRequests,
-        private readonly ClientInitializationGate $initializationGate,
         private readonly \Closure $requestIdFactory,
         private readonly \Closure $progressTokenFactory,
+        private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(ProtocolVersion::LATEST_VERSION),
         private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
@@ -142,8 +134,8 @@ final class Client
     }
 
     /**
-     * Server `Implementation` block captured from the initialize response, or
-     * `null` if the handshake has not completed yet.
+     * The server's `Implementation` block from the last `server/discover`
+     * response, or `null` if discovery has not run.
      */
     public function getServerInfo(): ?Implementation
     {
@@ -151,8 +143,8 @@ final class Client
     }
 
     /**
-     * Server capabilities negotiated during the initialize response, or `null` if
-     * the handshake has not completed yet.
+     * The server's capabilities from the last `server/discover` response, or
+     * `null` if discovery has not run.
      */
     public function getServerCapabilities(): ?ServerCapabilities
     {
@@ -160,149 +152,86 @@ final class Client
     }
 
     /**
-     * Sends a `ping` and awaits the peer's empty acknowledgement. Permitted
-     * before the handshake completes.
+     * Sends `server/discover` and records the advertised server info and capabilities.
      *
      * @throws ClientNotConnectedException
+     * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function ping(): void
+    public function discover(): DiscoverResult
     {
-        $this->sendRequest(
-            new PingRequest($this->mintRequestId(), new EmptyRequestParams()),
-            EmptyResult::class,
-        );
-    }
+        $result = $this->sendRequest(
+            new DiscoverRequest($this->mintRequestId(), new EmptyRequestParams($this->stampMeta())),
+            DiscoverResult::class,
+        )->result;
 
-    /**
-     * Sends `initialize`, awaits the result, then sends `notifications/initialized`.
-     *
-     * @throws ClientAlreadyInitializedException
-     * @throws ClientNotConnectedException
-     * @throws TransportAlreadyClosedException
-     */
-    public function initialize(
-        ClientCapabilities $capabilities = new ClientCapabilities(),
-        ?ProtocolVersion $protocolVersion = null,
-    ): InitializeResult {
-        if (null === $this->transport) {
-            throw new ClientNotConnectedException();
-        }
+        $this->serverInfo = $result->serverInfo;
+        $this->serverCapabilities = $result->capabilities;
 
-        if (! $this->initializationGate->markInitializeInFlight()) {
-            throw new ClientAlreadyInitializedException();
-        }
-
-        try {
-            $protocolVersion ??= new ProtocolVersion(ProtocolVersion::LATEST_VERSION);
-            $request = new InitializeRequest(
-                $this->mintRequestId(),
-                new InitializeRequestParams($protocolVersion, $capabilities, $this->clientInfo),
-            );
-
-            $future = $this->outboundRequests->register($request->id, InitializeResult::class);
-
-            try {
-                $this->transport->send($request);
-            } catch (\Throwable $e) {
-                // A failed send leaves the registration with no awaiter and no
-                // response to correlate, so free the slot before propagating.
-                $this->outboundRequests->forget($request->id);
-
-                throw $e;
-            }
-
-            $response = $future->await();
-            $result = $response->result;
-
-            // Spec: when the negotiated version is one the client cannot speak, it
-            // must not confirm the handshake and SHOULD disconnect.
-            if (ProtocolVersion::LATEST_VERSION !== $result->protocolVersion->version) {
-                $this->disconnect();
-
-                throw new UnsupportedProtocolVersionException($result->protocolVersion);
-            }
-
-            $this->transport->send(new InitializedNotification());
-            $this->initializationGate->markInitialized();
-
-            $this->serverInfo = $result->serverInfo;
-            $this->serverCapabilities = $result->capabilities;
-
-            return $result;
-        } catch (\Throwable $e) {
-            $this->initializationGate->revertInitializeInFlight();
-
-            throw $e;
-        }
+        return $result;
     }
 
     /**
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listTools(?Cursor $cursor = null): ListToolsResult
     {
         return $this->sendRequest(
-            new ListToolsRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            new ListToolsRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
             ListToolsResult::class,
         )->result;
     }
 
     /**
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listResources(?Cursor $cursor = null): ListResourcesResult
     {
         return $this->sendRequest(
-            new ListResourcesRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            new ListResourcesRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
             ListResourcesResult::class,
         )->result;
     }
 
     /**
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listResourceTemplates(?Cursor $cursor = null): ListResourceTemplatesResult
     {
         return $this->sendRequest(
-            new ListResourceTemplatesRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            new ListResourceTemplatesRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
             ListResourceTemplatesResult::class,
         )->result;
     }
 
     /**
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function listPrompts(?Cursor $cursor = null): ListPromptsResult
     {
         return $this->sendRequest(
-            new ListPromptsRequest($this->mintRequestId(), new PaginatedRequestParams($cursor)),
+            new ListPromptsRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
             ListPromptsResult::class,
         )->result;
     }
 
     /**
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function readResource(string $uri): ReadResourceResult
     {
         return $this->sendRequest(
-            new ReadResourceRequest($this->mintRequestId(), new ReadResourceRequestParams($uri)),
+            new ReadResourceRequest($this->mintRequestId(), new ReadResourceRequestParams($uri, $this->stampMeta())),
             ReadResourceResult::class,
         )->result;
     }
@@ -311,14 +240,13 @@ final class Client
      * @param null|array<string, string> $arguments
      *
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
     public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
     {
         return $this->sendRequest(
-            new GetPromptRequest($this->mintRequestId(), new GetPromptRequestParams($name, $arguments)),
+            new GetPromptRequest($this->mintRequestId(), new GetPromptRequestParams($name, $this->stampMeta(), $arguments)),
             GetPromptResult::class,
         )->result;
     }
@@ -328,7 +256,6 @@ final class Client
      * @param null|array{arguments?: array<string, string>} $context
      *
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -340,7 +267,7 @@ final class Client
         return $this->sendRequest(
             new CompleteRequest(
                 $this->mintRequestId(),
-                new CompleteRequestParams($ref, $argument, $context),
+                new CompleteRequestParams($ref, $argument, $this->stampMeta(), $context),
             ),
             CompleteResult::class,
         )->result;
@@ -355,7 +282,6 @@ final class Client
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      *
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -363,7 +289,7 @@ final class Client
     {
         if (null === $onProgress) {
             return $this->sendRequest(
-                new CallToolRequest($this->mintRequestId(), new CallToolRequestParams($name, $arguments)),
+                new CallToolRequest($this->mintRequestId(), new CallToolRequestParams($name, $this->stampMeta(), $arguments)),
                 CallToolResult::class,
             )->result;
         }
@@ -375,11 +301,7 @@ final class Client
             return $this->sendRequest(
                 new CallToolRequest(
                     $this->mintRequestId(),
-                    new CallToolRequestParams(
-                        $name,
-                        $arguments,
-                        meta: new RequestMetaObject(progressToken: $progressToken),
-                    ),
+                    new CallToolRequestParams($name, $this->stampMeta($progressToken), $arguments),
                 ),
                 CallToolResult::class,
             )->result;
@@ -399,7 +321,6 @@ final class Client
      * @return JsonRpcResultResponse<T>
      *
      * @throws ClientNotConnectedException
-     * @throws ClientNotInitializedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -411,13 +332,7 @@ final class Client
             throw new ClientNotConnectedException();
         }
 
-        $method = $request::getMethod();
-
-        if (! $this->initializationGate->allowsRequest($method)) {
-            throw new ClientNotInitializedException($method);
-        }
-
-        $this->assertServerSupports($method);
+        $this->assertServerSupports($request::getMethod());
 
         $future = $this->outboundRequests->register($request->id, $result);
 
@@ -435,6 +350,19 @@ final class Client
     }
 
     /**
+     * Builds the self-describing `_meta` envelope stamped onto every request.
+     */
+    private function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
+    {
+        return new RequestMetaObject(
+            $this->protocolVersion,
+            $this->clientInfo,
+            $this->clientCapabilities,
+            progressToken: $progressToken,
+        );
+    }
+
+    /**
      * @throws ServerCapabilityNotSupportedException
      */
     private function assertServerSupports(string $method): void
@@ -442,7 +370,7 @@ final class Client
         $capabilities = $this->serverCapabilities;
 
         if (null === $capabilities) {
-            // Before the handshake there are no negotiated capabilities to enforce.
+            // Discovery has not run, so there are no advertised capabilities to enforce.
             return;
         }
 
