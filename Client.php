@@ -82,7 +82,7 @@ final class Client
         private readonly PendingOutboundRequests $outboundRequests,
         private readonly \Closure $requestIdFactory,
         private readonly \Closure $progressTokenFactory,
-        private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(ProtocolVersion::LATEST_VERSION),
+        private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(version: ProtocolVersion::LATEST_VERSION),
         private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
@@ -161,7 +161,7 @@ final class Client
     public function discover(): DiscoverResult
     {
         $result = $this->sendRequest(
-            new DiscoverRequest($this->mintRequestId(), new EmptyRequestParams($this->stampMeta())),
+            new DiscoverRequest(id: $this->mintRequestId(), params: new EmptyRequestParams(meta: $this->stampMeta())),
             DiscoverResult::class,
         )->result;
 
@@ -179,7 +179,10 @@ final class Client
     public function listTools(?Cursor $cursor = null): ListToolsResult
     {
         return $this->sendRequest(
-            new ListToolsRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
+            new ListToolsRequest(
+                id: $this->mintRequestId(),
+                params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
+            ),
             ListToolsResult::class,
         )->result;
     }
@@ -192,7 +195,10 @@ final class Client
     public function listResources(?Cursor $cursor = null): ListResourcesResult
     {
         return $this->sendRequest(
-            new ListResourcesRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
+            new ListResourcesRequest(
+                id: $this->mintRequestId(),
+                params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
+            ),
             ListResourcesResult::class,
         )->result;
     }
@@ -205,7 +211,10 @@ final class Client
     public function listResourceTemplates(?Cursor $cursor = null): ListResourceTemplatesResult
     {
         return $this->sendRequest(
-            new ListResourceTemplatesRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
+            new ListResourceTemplatesRequest(
+                id: $this->mintRequestId(),
+                params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
+            ),
             ListResourceTemplatesResult::class,
         )->result;
     }
@@ -218,7 +227,10 @@ final class Client
     public function listPrompts(?Cursor $cursor = null): ListPromptsResult
     {
         return $this->sendRequest(
-            new ListPromptsRequest($this->mintRequestId(), new PaginatedRequestParams($this->stampMeta(), $cursor)),
+            new ListPromptsRequest(
+                id: $this->mintRequestId(),
+                params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
+            ),
             ListPromptsResult::class,
         )->result;
     }
@@ -231,7 +243,10 @@ final class Client
     public function readResource(string $uri): ReadResourceResult
     {
         return $this->sendRequest(
-            new ReadResourceRequest($this->mintRequestId(), new ReadResourceRequestParams($uri, $this->stampMeta())),
+            new ReadResourceRequest(
+                id: $this->mintRequestId(),
+                params: new ReadResourceRequestParams(uri: $uri, meta: $this->stampMeta()),
+            ),
             ReadResourceResult::class,
         )->result;
     }
@@ -246,7 +261,10 @@ final class Client
     public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
     {
         return $this->sendRequest(
-            new GetPromptRequest($this->mintRequestId(), new GetPromptRequestParams($name, $this->stampMeta(), $arguments)),
+            new GetPromptRequest(
+                id: $this->mintRequestId(),
+                params: new GetPromptRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
+            ),
             GetPromptResult::class,
         )->result;
     }
@@ -266,8 +284,13 @@ final class Client
     ): CompleteResult {
         return $this->sendRequest(
             new CompleteRequest(
-                $this->mintRequestId(),
-                new CompleteRequestParams($ref, $argument, $this->stampMeta(), $context),
+                id: $this->mintRequestId(),
+                params: new CompleteRequestParams(
+                    ref: $ref,
+                    argument: $argument,
+                    meta: $this->stampMeta(),
+                    context: $context,
+                ),
             ),
             CompleteResult::class,
         )->result;
@@ -289,7 +312,10 @@ final class Client
     {
         if (null === $onProgress) {
             return $this->sendRequest(
-                new CallToolRequest($this->mintRequestId(), new CallToolRequestParams($name, $this->stampMeta(), $arguments)),
+                new CallToolRequest(
+                    id: $this->mintRequestId(),
+                    params: new CallToolRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
+                ),
                 CallToolResult::class,
             )->result;
         }
@@ -300,8 +326,12 @@ final class Client
         try {
             return $this->sendRequest(
                 new CallToolRequest(
-                    $this->mintRequestId(),
-                    new CallToolRequestParams($name, $this->stampMeta($progressToken), $arguments),
+                    id: $this->mintRequestId(),
+                    params: new CallToolRequestParams(
+                        name: $name,
+                        meta: $this->stampMeta($progressToken),
+                        arguments: $arguments,
+                    ),
                 ),
                 CallToolResult::class,
             )->result;
@@ -355,9 +385,9 @@ final class Client
     private function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
     {
         return new RequestMetaObject(
-            $this->protocolVersion,
-            $this->clientInfo,
-            $this->clientCapabilities,
+            protocolVersion: $this->protocolVersion,
+            clientInfo: $this->clientInfo,
+            clientCapabilities: $this->clientCapabilities,
             progressToken: $progressToken,
         );
     }
@@ -391,11 +421,11 @@ final class Client
 
     private function mintRequestId(): RequestId
     {
-        return new RequestId(($this->requestIdFactory)());
+        return new RequestId(id: ($this->requestIdFactory)());
     }
 
     private function mintProgressToken(): ProgressToken
     {
-        return new ProgressToken(($this->progressTokenFactory)());
+        return new ProgressToken(token: ($this->progressTokenFactory)());
     }
 }

@@ -262,14 +262,18 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                         ['method' => $method, 'exception' => $e],
                     );
                     $this->responseSender->send($transport, new JsonRpcErrorResponse(
-                        $request->id,
-                        new InternalError(InternalError::DEFAULT_MESSAGE),
+                        id: $request->id,
+                        error: new InternalError(message: InternalError::DEFAULT_MESSAGE),
                     ), $method);
 
                     return;
                 }
 
-                $this->responseSender->send($transport, new JsonRpcResultResponse($request->id, $result), $method);
+                $this->responseSender->send(
+                    $transport,
+                    new JsonRpcResultResponse(id: $request->id, result: $result),
+                    $method,
+                );
             } finally {
                 $this->inboundRequests->release($request->id);
             }

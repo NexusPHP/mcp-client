@@ -77,7 +77,14 @@ final class ClientBuilder
         ?string $websiteUrl = null,
         ?array $icons = null,
     ): self {
-        $this->clientInfo = new Implementation($name, $version, $title, $description, $websiteUrl, $icons);
+        $this->clientInfo = new Implementation(
+            name: $name,
+            version: $version,
+            title: $title,
+            description: $description,
+            websiteUrl: $websiteUrl,
+            icons: $icons,
+        );
 
         return $this;
     }
