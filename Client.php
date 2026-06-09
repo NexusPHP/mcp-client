@@ -345,8 +345,8 @@ final class Client
      *
      * @template T of Result
      *
-     * @param JsonRpcRequest<non-empty-string> $request
-     * @param class-string<T>                  $result
+     * @param JsonRpcRequest<non-empty-string, array<string, mixed>> $request
+     * @param class-string<T>                                        $result
      *
      * @return JsonRpcResultResponse<T>
      *
