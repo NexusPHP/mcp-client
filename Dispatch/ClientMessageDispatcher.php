@@ -32,6 +32,7 @@ use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
 use Nexus\Mcp\Core\JsonRpc\JsonRpcMessageParser;
+use Nexus\Mcp\Core\JsonRpc\ResultResponseFactory;
 use Nexus\Mcp\Core\JsonRpc\UnparsedResultEnvelope;
 use Nexus\Mcp\Core\Schema\Error\InternalError;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcErrorResponse;
@@ -188,9 +189,9 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
      */
     private function dispatchSuccessResponse(array $envelope, UnparsedResultEnvelope $peeked): void
     {
-        $resultClass = $this->outboundRequests->resolveResultClass($peeked->id);
+        $responseClass = $this->outboundRequests->resolveResponseClass($peeked->id);
 
-        if (null === $resultClass) {
+        if (null === $responseClass) {
             $this->logger->warning(
                 'Discarding orphan success response for unknown request id.',
                 ['id' => $peeked->id->id],
@@ -200,8 +201,8 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         }
 
         try {
-            /** @var JsonRpcResultResponse<Result<array<string, mixed>>> $response */
-            $response = $this->parser->parse($envelope, $resultClass);
+            /** @var JsonRpcResultResponse<array<string, mixed>> $response */
+            $response = $this->parser->parse($envelope, $responseClass);
         } catch (\Throwable $e) {
             $this->outboundRequests->reject($peeked->id, $e);
 
@@ -266,7 +267,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
                 $this->responseSender->send(
                     $transport,
-                    new JsonRpcResultResponse(id: $request->id, result: $result),
+                    ResultResponseFactory::wrap($request, $result),
                     $method,
                 );
             } finally {

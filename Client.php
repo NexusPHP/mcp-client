@@ -23,8 +23,17 @@ use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Implementation;
+use Nexus\Mcp\Core\Schema\JsonRpc\CallToolResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\CompleteResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\DiscoverResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\GetPromptResultResponse;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\ListPromptsResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\ListResourcesResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\ListResourceTemplatesResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\ListToolsResultResponse;
+use Nexus\Mcp\Core\Schema\JsonRpc\ReadResourceResultResponse;
 use Nexus\Mcp\Core\Schema\ProgressToken;
 use Nexus\Mcp\Core\Schema\Prompt\PromptReference;
 use Nexus\Mcp\Core\Schema\ProtocolVersion;
@@ -46,11 +55,11 @@ use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
-use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
 use Nexus\Mcp\Core\Schema\Result\DiscoverResult;
 use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
+use Nexus\Mcp\Core\Schema\Result\InputRequiredResult;
 use Nexus\Mcp\Core\Schema\Result\ListPromptsResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
@@ -162,7 +171,7 @@ final class Client
     {
         $result = $this->sendRequest(
             new DiscoverRequest(id: $this->mintRequestId(), params: new EmptyRequestParams(meta: $this->stampMeta())),
-            DiscoverResult::class,
+            DiscoverResultResponse::class,
         )->result;
 
         $this->serverInfo = $result->serverInfo;
@@ -183,7 +192,7 @@ final class Client
                 id: $this->mintRequestId(),
                 params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
             ),
-            ListToolsResult::class,
+            ListToolsResultResponse::class,
         )->result;
     }
 
@@ -199,7 +208,7 @@ final class Client
                 id: $this->mintRequestId(),
                 params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
             ),
-            ListResourcesResult::class,
+            ListResourcesResultResponse::class,
         )->result;
     }
 
@@ -215,7 +224,7 @@ final class Client
                 id: $this->mintRequestId(),
                 params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
             ),
-            ListResourceTemplatesResult::class,
+            ListResourceTemplatesResultResponse::class,
         )->result;
     }
 
@@ -231,7 +240,7 @@ final class Client
                 id: $this->mintRequestId(),
                 params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
             ),
-            ListPromptsResult::class,
+            ListPromptsResultResponse::class,
         )->result;
     }
 
@@ -240,14 +249,14 @@ final class Client
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function readResource(string $uri): ReadResourceResult
+    public function readResource(string $uri): InputRequiredResult|ReadResourceResult
     {
         return $this->sendRequest(
             new ReadResourceRequest(
                 id: $this->mintRequestId(),
                 params: new ReadResourceRequestParams(uri: $uri, meta: $this->stampMeta()),
             ),
-            ReadResourceResult::class,
+            ReadResourceResultResponse::class,
         )->result;
     }
 
@@ -258,14 +267,14 @@ final class Client
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function getPrompt(string $name, ?array $arguments = null): GetPromptResult
+    public function getPrompt(string $name, ?array $arguments = null): GetPromptResult|InputRequiredResult
     {
         return $this->sendRequest(
             new GetPromptRequest(
                 id: $this->mintRequestId(),
                 params: new GetPromptRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
             ),
-            GetPromptResult::class,
+            GetPromptResultResponse::class,
         )->result;
     }
 
@@ -292,7 +301,7 @@ final class Client
                     context: $context,
                 ),
             ),
-            CompleteResult::class,
+            CompleteResultResponse::class,
         )->result;
     }
 
@@ -308,7 +317,7 @@ final class Client
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult
+    public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult|InputRequiredResult
     {
         if (null === $onProgress) {
             return $this->sendRequest(
@@ -316,7 +325,7 @@ final class Client
                     id: $this->mintRequestId(),
                     params: new CallToolRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
                 ),
-                CallToolResult::class,
+                CallToolResultResponse::class,
             )->result;
         }
 
@@ -333,7 +342,7 @@ final class Client
                         arguments: $arguments,
                     ),
                 ),
-                CallToolResult::class,
+                CallToolResultResponse::class,
             )->result;
         } finally {
             $this->progressListeners->unregister($progressToken);
@@ -343,18 +352,18 @@ final class Client
     /**
      * Sends an outbound JSON-RPC request and awaits the correlated response.
      *
-     * @template T of Result
+     * @template TResponse of JsonRpcResultResponse<array<string, mixed>> = JsonRpcResultResponse<array<string, mixed>>
      *
      * @param JsonRpcRequest<non-empty-string, array<string, mixed>> $request
-     * @param class-string<T>                                        $result
+     * @param class-string<TResponse>                                $response
      *
-     * @return JsonRpcResultResponse<T>
+     * @return TResponse
      *
      * @throws ClientNotConnectedException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function sendRequest(JsonRpcRequest $request, string $result): JsonRpcResultResponse
+    public function sendRequest(JsonRpcRequest $request, string $response): JsonRpcResultResponse
     {
         $transport = $this->transport;
 
@@ -364,7 +373,7 @@ final class Client
 
         $this->assertServerSupports($request::getMethod());
 
-        $future = $this->outboundRequests->register($request->id, $result);
+        $future = $this->outboundRequests->register($request->id, $response);
 
         try {
             $transport->send($request);
