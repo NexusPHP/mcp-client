@@ -41,7 +41,7 @@ final class ClientBuilder
     private LoggerInterface $logger;
 
     /**
-     * @var array<non-empty-string, RequestHandlerInterface<non-empty-string, Result<array<string, mixed>>, ClientContext>>
+     * @var array<non-empty-string, RequestHandlerInterface<non-empty-string, Result, ClientContext>>
      */
     private array $requestHandlers = [];
 
@@ -134,8 +134,8 @@ final class ClientBuilder
     /**
      * Registers a handler for an inbound request method the peer may send to the client.
      *
-     * @param non-empty-string                                                                       $method
-     * @param RequestHandlerInterface<non-empty-string, Result<array<string, mixed>>, ClientContext> $handler
+     * @param non-empty-string                                                 $method
+     * @param RequestHandlerInterface<non-empty-string, Result, ClientContext> $handler
      */
     public function addRequestHandler(string $method, RequestHandlerInterface $handler): self
     {

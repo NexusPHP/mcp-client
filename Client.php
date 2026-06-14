@@ -352,10 +352,10 @@ final class Client
     /**
      * Sends an outbound JSON-RPC request and awaits the correlated response.
      *
-     * @template TResponse of JsonRpcResultResponse<array<string, mixed>> = JsonRpcResultResponse<array<string, mixed>>
+     * @template TResponse of JsonRpcResultResponse = JsonRpcResultResponse
      *
-     * @param JsonRpcRequest<non-empty-string, array<string, mixed>> $request
-     * @param class-string<TResponse>                                $response
+     * @param JsonRpcRequest<non-empty-string> $request
+     * @param class-string<TResponse>          $response
      *
      * @return TResponse
      *
