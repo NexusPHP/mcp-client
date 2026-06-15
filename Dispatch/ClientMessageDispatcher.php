@@ -244,6 +244,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                     $handler = $this->requestHandlers->get($method)
                         ?? throw new MethodNotFoundException($method, $request->id);
                     $result = $handler->handle($request, $context);
+                    $response = ResultResponseFactory::wrap($request, $result);
                 } catch (TransportAlreadyClosedException $e) {
                     $this->responseSender->logSkippedDelivery($method, $e);
 
@@ -265,11 +266,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                     return;
                 }
 
-                $this->responseSender->send(
-                    $transport,
-                    ResultResponseFactory::wrap($request, $result),
-                    $method,
-                );
+                $this->responseSender->send($transport, $response, $method);
             } finally {
                 $this->inboundRequests->release($request->id);
             }
