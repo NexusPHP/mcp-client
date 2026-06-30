@@ -236,7 +236,6 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                     $request->id,
                     $this->cancellation,
                     null,
-                    $transport->getSessionId(),
                     $sender,
                 );
 
