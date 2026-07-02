@@ -40,6 +40,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
 use Nexus\Mcp\Core\Schema\Result;
+use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -87,7 +88,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
      * @param array<string, mixed> $envelope
      */
     #[\Override]
-    public function dispatch(array $envelope, TransportInterface $transport): void
+    public function dispatch(array $envelope, TransportInterface $transport, ReceiveContext $context): void
     {
         if (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope)) {
             $this->dispatchResponseEnvelope($envelope);

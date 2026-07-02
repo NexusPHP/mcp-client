@@ -66,6 +66,7 @@ use Nexus\Mcp\Core\Schema\ResultResponse\ListResourceTemplatesResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ListToolsResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ReadResourceResultResponse;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
+use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -113,8 +114,8 @@ final class Client
 
         $this->transport = $transport;
 
-        $transport->onMessage(function (array $envelope) use ($transport): void {
-            $this->dispatcher->dispatch($envelope, $transport);
+        $transport->onMessage(function (array $envelope, ReceiveContext $context) use ($transport): void {
+            $this->dispatcher->dispatch($envelope, $transport, $context);
         });
         $transport->onError(function (\Throwable $e): void {
             $this->logger->error('Transport error.', ['exception' => $e]);
