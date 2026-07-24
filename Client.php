@@ -145,7 +145,8 @@ final class Client
 
     /**
      * The server's `Implementation` block from the last `server/discover`
-     * response, or `null` if discovery has not run.
+     * response `_meta`, or `null` if discovery has not run or the server did
+     * not identify itself.
      */
     public function getServerInfo(): ?Implementation
     {
@@ -175,7 +176,7 @@ final class Client
             DiscoverResultResponse::class,
         )->result;
 
-        $this->serverInfo = $result->serverInfo;
+        $this->serverInfo = $result->meta->serverInfo;
         $this->serverCapabilities = $result->capabilities;
 
         return $result;
