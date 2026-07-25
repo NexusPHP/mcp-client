@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Transport;
 
+use Amp\ByteStream\BufferException;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\Http\Client\DelegateHttpClient;
@@ -21,6 +22,8 @@ use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
+use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
+use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
 use Nexus\Mcp\Core\Exception\TransportNotStartedException;
@@ -28,6 +31,7 @@ use Nexus\Mcp\Core\Http\HttpStatus;
 use Nexus\Mcp\Core\Http\SseFrameParser;
 use Nexus\Mcp\Core\Http\StandardHeaders;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
+use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResponse;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
@@ -48,6 +52,11 @@ use function Amp\async;
  */
 final class StreamableHttpClientTransport implements ParameterHeaderMirroringInterface
 {
+    /**
+     * Bytes a single response may occupy before it is abandoned.
+     */
+    public const int DEFAULT_MAX_RESPONSE_BYTES = SseFrameParser::DEFAULT_MAX_FRAME_BYTES;
+
     private const string LABEL = 'Streamable HTTP client';
     private const string ACCEPT = 'application/json, text/event-stream';
 
@@ -58,23 +67,29 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     private ?DeferredCancellation $lifetime = null;
 
     /**
-     * @param non-empty-string    $endpoint    Absolute URL of the server's MCP endpoint
-     * @param ?DelegateHttpClient $client      Defaults to the amphp default client
-     * @param float               $readTimeout Seconds a response may stall before the exchange is abandoned.
-     *                                         It must exceed the server's SSE keep-alive interval, or a quiet
-     *                                         long-lived stream is torn down between keep-alives.
+     * @param non-empty-string    $endpoint         Absolute URL of the server's MCP endpoint
+     * @param ?DelegateHttpClient $client           Defaults to the amphp default client
+     * @param float               $readTimeout      Seconds a response may stall before the exchange is abandoned.
+     *                                              It must exceed the server's SSE keep-alive interval, or a quiet
+     *                                              long-lived stream is torn down between keep-alives.
+     * @param int                 $maxResponseBytes Bytes a buffered body, or one SSE frame, may occupy
      */
     public function __construct(
         private readonly string $endpoint,
         ?DelegateHttpClient $client = null,
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly float $readTimeout = 30.0,
+        private readonly int $maxResponseBytes = self::DEFAULT_MAX_RESPONSE_BYTES,
     ) {
         Assert::that($endpoint)->isNonEmptyString(\sprintf('%s endpoint must be a non-empty string.', self::LABEL));
 
         if ($readTimeout <= 0.0) {
             throw new \InvalidArgumentException(\sprintf('%s read timeout must be positive, %s given.', self::LABEL, $readTimeout));
         }
+
+        Assert::that($maxResponseBytes)->isPositiveInt(
+            \sprintf('%s maximum response size must be a positive integer, {value} given.', self::LABEL),
+        );
 
         $this->client = $client ?? HttpClientBuilder::buildDefault();
         $this->events = new TransportEvents();
@@ -119,15 +134,18 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
 
         $headers = $context->headers ?? [];
 
+        // Only a request has a caller awaiting a response, so only a request names one to fail.
+        $requestId = $message instanceof JsonRpcRequest ? $message->id : null;
+
         // The POST runs detached so a caller awaiting the correlated response is not the thing driving it.
-        $this->exchanges->track(async(function () use ($envelope, $headers, $lifetime): void {
+        $this->exchanges->track(async(function () use ($envelope, $headers, $lifetime, $requestId): void {
             try {
                 $this->exchange($envelope, $headers, $lifetime);
             } catch (CancelledException) {
                 // The transport closed while this exchange was in flight. Shutdown is not a fault, and the
                 // protocol layer already learns of it from the close signal.
             } catch (\Throwable $e) {
-                $this->events->emitError($e);
+                $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
             }
         }));
     }
@@ -200,7 +218,13 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
             return;
         }
 
-        $this->emit($response->getBody()->buffer($lifetime->getCancellation()));
+        try {
+            $payload = $response->getBody()->buffer($lifetime->getCancellation(), $this->maxResponseBytes);
+        } catch (BufferException $e) {
+            throw new ResponseTooLargeException($this->maxResponseBytes, $e);
+        }
+
+        $this->emit($payload);
     }
 
     /**
@@ -231,7 +255,7 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
      */
     private function readStream(Response $response, DeferredCancellation $lifetime): void
     {
-        $parser = new SseFrameParser();
+        $parser = new SseFrameParser($this->maxResponseBytes);
         $body = $response->getBody();
         $cancellation = $lifetime->getCancellation();
 
@@ -240,7 +264,13 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
         // A null chunk is the server closing the stream, which ends the exchange.
         while (null !== $chunk) {
             foreach ($parser->feed($chunk) as $frame) {
-                $this->emit($frame->data);
+                try {
+                    $this->emit($frame->data);
+                } catch (\InvalidArgumentException|\JsonException $e) {
+                    // One unreadable frame does not end the stream: a later frame may still carry the
+                    // response, so the exchange reads on rather than failing its caller here.
+                    $this->events->emitError($e);
+                }
             }
 
             $chunk = $body->read($cancellation);
@@ -249,18 +279,14 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
 
     /**
      * Decodes one JSON-RPC envelope and hands it to the message listeners.
+     *
+     * @throws \InvalidArgumentException
+     * @throws \JsonException
      */
     private function emit(string $payload): void
     {
-        try {
-            $envelope = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
-            Assert::that($envelope)->isMap(\sprintf('%s received a payload that is not a JSON-RPC envelope.', self::LABEL));
-        } catch (\InvalidArgumentException|\JsonException $e) {
-            // The protocol layer never sees the payload, so report it as a transport fault instead.
-            $this->events->emitError($e);
-
-            return;
-        }
+        $envelope = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
+        Assert::that($envelope)->isMap(\sprintf('%s received a payload that is not a JSON-RPC envelope.', self::LABEL));
 
         $this->events->emitMessage($envelope, new ReceiveContext());
     }

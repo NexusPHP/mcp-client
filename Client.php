@@ -19,6 +19,7 @@ use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
+use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
 use Nexus\Mcp\Core\Http\ParameterHeaders;
@@ -131,6 +132,12 @@ final class Client
             $this->dispatcher->dispatch($envelope, $transport, $context);
         });
         $transport->onError(function (\Throwable $e): void {
+            if ($e instanceof OutboundRequestFailedException) {
+                // The exchange that carried this request is over, so its response can no longer arrive.
+                // A caller still awaiting one would otherwise block for the life of the process.
+                $this->outboundRequests->reject($e->requestId, $e);
+            }
+
             $this->logger->error('Transport error.', ['exception' => $e]);
         });
         $transport->onDrain(function (): void {
