@@ -112,6 +112,8 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 ['envelope' => $envelope, 'exception' => $e],
             );
 
+            // A client sends no JSON-RPC responses, so it has no reply to offer an envelope that carried an
+            // id. The server answers this case per §5. The client can only drop it.
             if (! $isNotification) {
                 return;
             }
