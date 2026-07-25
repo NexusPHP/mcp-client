@@ -20,6 +20,9 @@ use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
+use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
+use Nexus\Mcp\Core\Http\ParameterHeaders;
+use Nexus\Mcp\Core\Http\ParameterHeaderScanner;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Implementation;
@@ -66,7 +69,9 @@ use Nexus\Mcp\Core\Schema\ResultResponse\ListResourceTemplatesResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ListToolsResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ReadResourceResultResponse;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
+use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
+use Nexus\Mcp\Core\Transport\SendContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -80,6 +85,14 @@ final class Client
     private ?TransportInterface $transport = null;
     private ?Implementation $serverInfo = null;
     private ?ServerCapabilities $serverCapabilities = null;
+
+    /**
+     * `x-mcp-header` bindings of every tool a `tools/list` admitted, keyed by tool name. Only a transport
+     * that mirrors parameter headers populates it.
+     *
+     * @var array<string, list<ParameterHeaderBinding>>
+     */
+    private array $toolHeaderBindings = [];
 
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
@@ -140,6 +153,11 @@ final class Client
     {
         $transport = $this->transport;
         $this->transport = null;
+
+        // The cached bindings describe the server that just went away, so a later connection must not
+        // mirror headers from them.
+        $this->toolHeaderBindings = [];
+
         $transport?->close();
     }
 
@@ -189,13 +207,17 @@ final class Client
      */
     public function listTools(?Cursor $cursor = null): ListToolsResult
     {
-        return $this->sendRequest(
+        $result = $this->sendRequest(
             new ListToolsRequest(
                 id: $this->mintRequestId(),
                 params: new PaginatedRequestParams(meta: $this->stampMeta(), cursor: $cursor),
             ),
             ListToolsResultResponse::class,
         )->result;
+
+        return $this->transport instanceof ParameterHeaderMirroringInterface
+            ? $this->admitMirrorableTools($result)
+            : $result;
     }
 
     /**
@@ -321,6 +343,8 @@ final class Client
      */
     public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult|InputRequiredResult
     {
+        $context = new SendContext(headers: $this->mirrorParameterHeaders($name, $arguments));
+
         if (null === $onProgress) {
             return $this->sendRequest(
                 new CallToolRequest(
@@ -328,6 +352,7 @@ final class Client
                     params: new CallToolRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
                 ),
                 CallToolResultResponse::class,
+                $context,
             )->result;
         }
 
@@ -345,6 +370,7 @@ final class Client
                     ),
                 ),
                 CallToolResultResponse::class,
+                $context,
             )->result;
         } finally {
             $this->progressListeners->unregister($progressToken);
@@ -365,7 +391,7 @@ final class Client
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function sendRequest(JsonRpcRequest $request, string $response): JsonRpcResultResponse
+    public function sendRequest(JsonRpcRequest $request, string $response, ?SendContext $context = null): JsonRpcResultResponse
     {
         $transport = $this->transport;
 
@@ -378,7 +404,7 @@ final class Client
         $future = $this->outboundRequests->register($request->id, $response);
 
         try {
-            $transport->send($request);
+            $transport->send($request, $context);
         } catch (\Throwable $e) {
             // A failed send leaves the registration with no awaiter and no
             // response to correlate, so free the slot before propagating.
@@ -388,6 +414,53 @@ final class Client
         }
 
         return $future->await();
+    }
+
+    /**
+     * Caches the `x-mcp-header` bindings of every tool whose declarations hold, and drops the rest from the
+     * listing: the spec has a client exclude a tool it cannot mirror rather than call it unmirrored.
+     */
+    private function admitMirrorableTools(ListToolsResult $result): ListToolsResult
+    {
+        $admitted = [];
+
+        foreach ($result->tools as $tool) {
+            $scan = ParameterHeaderScanner::scan($tool->inputSchema);
+
+            if (! $scan->valid) {
+                $this->logger->warning(
+                    'Excluding tool {tool} from the listing: its "x-mcp-header" declarations are invalid.',
+                    ['tool' => $tool->name, 'reason' => $scan->reason],
+                );
+
+                continue;
+            }
+
+            $this->toolHeaderBindings[$tool->name] = $scan->bindings;
+            $admitted[] = $tool;
+        }
+
+        return $admitted === $result->tools ? $result : new ListToolsResult(
+            tools: $admitted,
+            ttlMs: $result->ttlMs,
+            cacheScope: $result->cacheScope,
+            nextCursor: $result->nextCursor,
+            meta: $result->meta,
+        );
+    }
+
+    /**
+     * The mirrored `Mcp-Param-{Name}` headers for one tool call, empty when the transport does not mirror
+     * them or the tool declared none.
+     *
+     * @param ?array<string, mixed> $arguments
+     *
+     * @return array<non-empty-string, string>
+     */
+    private function mirrorParameterHeaders(string $name, ?array $arguments): array
+    {
+        // Only a mirroring transport ever fills the cache, so an empty one already means nothing to mirror.
+        return ParameterHeaders::build($this->toolHeaderBindings[$name] ?? [], $arguments ?? []);
     }
 
     /**

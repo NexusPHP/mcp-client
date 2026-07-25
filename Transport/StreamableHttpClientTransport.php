@@ -29,11 +29,11 @@ use Nexus\Mcp\Core\Http\SseFrameParser;
 use Nexus\Mcp\Core\Http\StandardHeaders;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResponse;
+use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\SendContext;
 use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\TransportEvents;
-use Nexus\Mcp\Core\Transport\TransportInterface;
 use Nexus\Mcp\Core\Transport\TransportState;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -46,7 +46,7 @@ use function Amp\async;
  *
  * @see https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http
  */
-final class StreamableHttpClientTransport implements TransportInterface
+final class StreamableHttpClientTransport implements ParameterHeaderMirroringInterface
 {
     private const string LABEL = 'Streamable HTTP client';
     private const string ACCEPT = 'application/json, text/event-stream';
@@ -117,10 +117,12 @@ final class StreamableHttpClientTransport implements TransportInterface
         $envelope = $message->toArray();
         Assert::that($envelope)->isMap(\sprintf('%s can only send a string-keyed envelope.', self::LABEL));
 
+        $headers = $context->headers ?? [];
+
         // The POST runs detached so a caller awaiting the correlated response is not the thing driving it.
-        $this->exchanges->track(async(function () use ($envelope, $lifetime): void {
+        $this->exchanges->track(async(function () use ($envelope, $headers, $lifetime): void {
             try {
-                $this->exchange($envelope, $lifetime);
+                $this->exchange($envelope, $headers, $lifetime);
             } catch (CancelledException) {
                 // The transport closed while this exchange was in flight. Shutdown is not a fault, and the
                 // protocol layer already learns of it from the close signal.
@@ -180,11 +182,12 @@ final class StreamableHttpClientTransport implements TransportInterface
     /**
      * POSTs one envelope and emits whatever the server answers with.
      *
-     * @param array<string, mixed> $envelope
+     * @param array<string, mixed>            $envelope
+     * @param array<non-empty-string, string> $headers  Mirrored parameter headers the protocol layer computed
      */
-    private function exchange(array $envelope, DeferredCancellation $lifetime): void
+    private function exchange(array $envelope, array $headers, DeferredCancellation $lifetime): void
     {
-        $response = $this->client->request($this->buildRequest($envelope), $lifetime->getCancellation());
+        $response = $this->client->request($this->buildRequest($envelope, $headers), $lifetime->getCancellation());
 
         if ($response->getStatus() === HttpStatus::Accepted->value) {
             // The server accepted a notification. There is no body to correlate.
@@ -201,9 +204,10 @@ final class StreamableHttpClientTransport implements TransportInterface
     }
 
     /**
-     * @param array<string, mixed> $envelope
+     * @param array<string, mixed>            $envelope
+     * @param array<non-empty-string, string> $headers
      */
-    private function buildRequest(array $envelope): Request
+    private function buildRequest(array $envelope, array $headers): Request
     {
         $request = new Request($this->endpoint, 'POST', json_encode($envelope, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
 
@@ -211,6 +215,7 @@ final class StreamableHttpClientTransport implements TransportInterface
         $request->setHeaders([
             'Content-Type' => 'application/json',
             'Accept' => self::ACCEPT,
+            ...$headers,
             ...StandardHeaders::build($envelope),
         ]);
 
