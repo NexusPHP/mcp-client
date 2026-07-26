@@ -552,6 +552,10 @@ final class Client
             $scan = ParameterHeaderScanner::scan($tool->inputSchema);
 
             if (! $scan->valid) {
+                // A re-listed tool whose declarations no longer hold must not keep mirroring the bindings
+                // an earlier listing cached for it.
+                unset($this->toolHeaderBindings[$tool->name]);
+
                 $this->logger->warning(
                     'Excluding tool {tool} from the listing: its "x-mcp-header" declarations are invalid.',
                     ['tool' => $tool->name, 'reason' => $scan->reason],
