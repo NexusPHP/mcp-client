@@ -293,6 +293,8 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
 
     private static function isEventStream(Response $response): bool
     {
-        return str_contains(strtolower($response->getHeader('Content-Type') ?? ''), 'text/event-stream');
+        // `Content-Type` carries one media type, so the type is the head of the value. A match anywhere
+        // else in it belongs to a parameter, not to the type.
+        return str_starts_with(strtolower($response->getHeader('Content-Type') ?? ''), 'text/event-stream');
     }
 }
