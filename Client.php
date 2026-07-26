@@ -13,13 +13,16 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client;
 
+use Amp\CancelledException;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Dispatch\RequestDeadline;
 use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
 use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
+use Nexus\Mcp\Core\Exception\RequestTimeoutException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
 use Nexus\Mcp\Core\Http\ParameterHeaders;
@@ -29,6 +32,8 @@ use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
+use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
+use Nexus\Mcp\Core\Schema\NotificationParams\CancelledNotificationParams;
 use Nexus\Mcp\Core\Schema\ProgressToken;
 use Nexus\Mcp\Core\Schema\Prompt\PromptReference;
 use Nexus\Mcp\Core\Schema\ProtocolVersion;
@@ -83,6 +88,17 @@ use Psr\Log\NullLogger;
  */
 final class Client
 {
+    /**
+     * Seconds a request may go unanswered before it is abandoned. Each progress notification for the
+     * request restarts it.
+     */
+    public const float DEFAULT_REQUEST_TIMEOUT = 60.0;
+
+    /**
+     * Seconds a request may run in total, however much progress arrives.
+     */
+    public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
+
     private ?TransportInterface $transport = null;
     private ?Implementation $serverInfo = null;
     private ?ServerCapabilities $serverCapabilities = null;
@@ -98,6 +114,8 @@ final class Client
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
      * @param \Closure(): (int|non-empty-string) $progressTokenFactory
+     * @param ?float                             $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
+     * @param ?float                             $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -109,6 +127,8 @@ final class Client
         private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(version: ProtocolVersion::LATEST_VERSION),
         private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
+        private readonly ?float $requestTimeout = self::DEFAULT_REQUEST_TIMEOUT,
+        private readonly ?float $maxRequestTimeout = self::DEFAULT_MAX_REQUEST_TIMEOUT,
     ) {
     }
 
@@ -191,6 +211,7 @@ final class Client
      * Sends `server/discover` and records the advertised server info and capabilities.
      *
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -209,6 +230,7 @@ final class Client
 
     /**
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -229,6 +251,7 @@ final class Client
 
     /**
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -245,6 +268,7 @@ final class Client
 
     /**
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -261,6 +285,7 @@ final class Client
 
     /**
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -277,6 +302,7 @@ final class Client
 
     /**
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -295,6 +321,7 @@ final class Client
      * @param null|array<string, string> $arguments
      *
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -314,6 +341,7 @@ final class Client
      * @param null|array{arguments?: array<string, string>} $context
      *
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -345,6 +373,7 @@ final class Client
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      *
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
@@ -364,10 +393,22 @@ final class Client
         }
 
         $progressToken = $this->mintProgressToken();
-        $this->progressListeners->register($progressToken, $onProgress);
+
+        // The deadline arms its timers on construction, so everything from here on runs under the `finally`
+        // that disarms them. A throw in between would otherwise hold the event loop open for the ceiling.
+        $deadline = $this->openDeadline();
 
         try {
-            return $this->sendRequest(
+            // Progress means the call is alive, so each report buys it another idle window, up to the ceiling.
+            $this->progressListeners->register(
+                $progressToken,
+                static function (float $progress, ?float $total, ?string $message) use ($onProgress, $deadline): void {
+                    $deadline?->extend();
+                    $onProgress($progress, $total, $message);
+                },
+            );
+
+            return $this->dispatch(
                 new CallToolRequest(
                     id: $this->mintRequestId(),
                     params: new CallToolRequestParams(
@@ -378,8 +419,10 @@ final class Client
                 ),
                 CallToolResultResponse::class,
                 $context,
+                $deadline,
             )->result;
         } finally {
+            $deadline?->release();
             $this->progressListeners->unregister($progressToken);
         }
     }
@@ -391,36 +434,110 @@ final class Client
      *
      * @param JsonRpcRequest<non-empty-string> $request
      * @param class-string<TResponse>          $response
+     * @param ?float                           $timeout  Seconds this one request may go unanswered, overriding the client's default
      *
      * @return TResponse
      *
      * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function sendRequest(JsonRpcRequest $request, string $response, ?SendContext $context = null): JsonRpcResultResponse
-    {
-        $transport = $this->transport;
+    public function sendRequest(
+        JsonRpcRequest $request,
+        string $response,
+        ?SendContext $context = null,
+        ?float $timeout = null,
+    ): JsonRpcResultResponse {
+        return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
+    }
 
-        if (null === $transport) {
-            throw new ClientNotConnectedException();
+    /**
+     * @template TResponse of JsonRpcResultResponse
+     *
+     * @param JsonRpcRequest<non-empty-string> $request
+     * @param class-string<TResponse>          $response
+     *
+     * @return TResponse
+     *
+     * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
+     * @throws ServerCapabilityNotSupportedException
+     */
+    private function dispatch(
+        JsonRpcRequest $request,
+        string $response,
+        ?SendContext $context,
+        ?RequestDeadline $deadline,
+    ): JsonRpcResultResponse {
+        try {
+            $transport = $this->transport ?? throw new ClientNotConnectedException();
+
+            $this->assertServerSupports($request::getMethod());
+
+            $future = $this->outboundRequests->register($request->id, $response);
+
+            try {
+                $transport->send($request, $context);
+            } catch (\Throwable $e) {
+                // A failed send leaves the registration with no awaiter and no
+                // response to correlate, so free the slot before propagating.
+                $this->outboundRequests->forget($request->id);
+
+                throw $e;
+            }
+
+            if (null === $deadline) {
+                return $future->await();
+            }
+
+            try {
+                return $future->await($deadline->getCancellation());
+            } catch (CancelledException $e) {
+                throw $this->abandon($request, $transport, $deadline, $e);
+            }
+        } finally {
+            $deadline?->release();
         }
+    }
 
-        $this->assertServerSupports($request::getMethod());
-
-        $future = $this->outboundRequests->register($request->id, $response);
+    /**
+     * Frees the request's slot and tells the peer to stop working on it, then reports the timeout. A
+     * response arriving after this has no awaiter left and is discarded as an orphan.
+     *
+     * @param JsonRpcRequest<non-empty-string> $request
+     */
+    private function abandon(
+        JsonRpcRequest $request,
+        TransportInterface $transport,
+        RequestDeadline $deadline,
+        CancelledException $cause,
+    ): RequestTimeoutException {
+        $this->outboundRequests->forget($request->id);
 
         try {
-            $transport->send($request, $context);
+            $transport->send(new CancelledNotification(
+                params: new CancelledNotificationParams(requestId: $request->id, reason: 'The request timed out.'),
+            ));
         } catch (\Throwable $e) {
-            // A failed send leaves the registration with no awaiter and no
-            // response to correlate, so free the slot before propagating.
-            $this->outboundRequests->forget($request->id);
-
-            throw $e;
+            // The peer goes on working on a result nobody will read, which the timeout itself survives.
+            $this->logger->warning(
+                'Could not tell the server that request {id} was abandoned.',
+                ['id' => $request->id->id, 'exception' => $e],
+            );
         }
 
-        return $future->await();
+        return new RequestTimeoutException($request->id, $deadline->elapsed, $cause);
+    }
+
+    /**
+     * @param ?float $timeout Overrides the configured idle deadline for one request
+     */
+    private function openDeadline(?float $timeout = null): ?RequestDeadline
+    {
+        $timeout ??= $this->requestTimeout;
+
+        return null === $timeout ? null : new RequestDeadline($timeout, $this->maxRequestTimeout);
     }
 
     /**

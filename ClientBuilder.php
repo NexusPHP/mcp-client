@@ -39,6 +39,8 @@ final class ClientBuilder
     private ?Implementation $clientInfo = null;
     private ClientCapabilities $clientCapabilities;
     private LoggerInterface $logger;
+    private ?float $requestTimeout = Client::DEFAULT_REQUEST_TIMEOUT;
+    private ?float $maxRequestTimeout = Client::DEFAULT_MAX_REQUEST_TIMEOUT;
 
     /**
      * @var array<non-empty-string, RequestHandlerInterface<non-empty-string, Result, ClientContext>>
@@ -102,6 +104,35 @@ final class ClientBuilder
     public function setLogger(LoggerInterface $logger): self
     {
         $this->logger = $logger;
+
+        return $this;
+    }
+
+    /**
+     * Seconds a request may go unanswered before it is abandoned, or `null` to wait indefinitely. Each
+     * progress notification for the request restarts it.
+     */
+    public function setRequestTimeout(?float $seconds): self
+    {
+        if (null !== $seconds && $seconds <= 0.0) {
+            throw new \InvalidArgumentException(\sprintf('The request timeout must be positive or null, %s given.', $seconds));
+        }
+
+        $this->requestTimeout = $seconds;
+
+        return $this;
+    }
+
+    /**
+     * Seconds a request may run in total however much progress arrives, or `null` to leave it unbounded.
+     */
+    public function setMaxRequestTimeout(?float $seconds): self
+    {
+        if (null !== $seconds && $seconds <= 0.0) {
+            throw new \InvalidArgumentException(\sprintf('The maximum request timeout must be positive or null, %s given.', $seconds));
+        }
+
+        $this->maxRequestTimeout = $seconds;
 
         return $this;
     }
@@ -190,6 +221,8 @@ final class ClientBuilder
             $this->progressTokenFactory ?? self::buildDefaultProgressTokenFactory(),
             progressListeners: $progressListeners,
             logger: $this->logger,
+            requestTimeout: $this->requestTimeout,
+            maxRequestTimeout: $this->maxRequestTimeout,
         );
     }
 
