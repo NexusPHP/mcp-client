@@ -1,5 +1,5 @@
 {
-    "name": "nexusphp/mcp-client-sdk",
+    "name": "nexusphp/mcp-client",
     "description": "PHP SDK for the MCP specification - client component.",
     "license": "MIT",
     "type": "library",
@@ -16,6 +16,7 @@
         "amphp/http-client": "^5.0",
         "amphp/process": "^2.0",
         "nexusphp/assert": "^1.0",
+        "nexusphp/mcp-core": "self.version",
         "psr/log": "^3.0",
         "revolt/event-loop": "^1.0"
     },
