@@ -224,7 +224,7 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
             throw new ResponseTooLargeException($this->maxResponseBytes, $e);
         }
 
-        $this->emit($payload);
+        $this->events->emitMessage(self::decode($payload), new ReceiveContext());
     }
 
     /**
@@ -265,12 +265,17 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
         while (null !== $chunk) {
             foreach ($parser->feed($chunk) as $frame) {
                 try {
-                    $this->emit($frame->data);
+                    $envelope = self::decode($frame->data);
                 } catch (\InvalidArgumentException|\JsonException $e) {
                     // One unreadable frame does not end the stream: a later frame may still carry the
-                    // response, so the exchange reads on rather than failing its caller here.
+                    // response, so the exchange reads on rather than failing its caller here. Only the
+                    // decode is guarded, so a listener fault stays a fault rather than an unreadable frame.
                     $this->events->emitError($e);
+
+                    continue;
                 }
+
+                $this->events->emitMessage($envelope, new ReceiveContext());
             }
 
             $chunk = $body->read($cancellation);
@@ -278,17 +283,19 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     }
 
     /**
-     * Decodes one JSON-RPC envelope and hands it to the message listeners.
+     * Decodes one JSON-RPC envelope.
+     *
+     * @return array<string, mixed>
      *
      * @throws \InvalidArgumentException
      * @throws \JsonException
      */
-    private function emit(string $payload): void
+    private static function decode(string $payload): array
     {
         $envelope = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
         Assert::that($envelope)->isMap(\sprintf('%s received a payload that is not a JSON-RPC envelope.', self::LABEL));
 
-        $this->events->emitMessage($envelope, new ReceiveContext());
+        return $envelope;
     }
 
     private static function isEventStream(Response $response): bool
