@@ -15,7 +15,6 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
-use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
@@ -41,12 +40,11 @@ final class AuthorizationCoordinator
     private const string OFFLINE_ACCESS_SCOPE = 'offline_access';
 
     /**
-     * The authorization server each resource resolved to, so a token can be found again without repeating
-     * discovery.
+     * What discovery last found for each resource, so a step-up does not repeat it.
      *
-     * @var array<string, AuthorizationServerMetadata>
+     * @var array<string, DiscoveredResource>
      */
-    private array $servers = [];
+    private array $discovered = [];
 
     /**
      * @var SharedFlow<AccessToken>
@@ -95,7 +93,7 @@ final class AuthorizationCoordinator
      */
     public function fetchToken(ResourceIdentifier $resource): ?AccessToken
     {
-        $server = $this->servers[$resource->value] ?? null;
+        $server = $this->discovered[$resource->value]->server ?? null;
 
         if (null === $server) {
             return null;
@@ -115,7 +113,7 @@ final class AuthorizationCoordinator
      */
     public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
     {
-        $server = $this->servers[$resource->value] ?? null;
+        $server = $this->discovered[$resource->value]->server ?? null;
         $token = null === $server ? null : $this->tokens->read($resource->value, $server->issuer);
 
         return new ScopeSet(null === $token ? [] : $token->scopes);
@@ -124,13 +122,22 @@ final class AuthorizationCoordinator
     /**
      * Drops the token held for an MCP server, so the next request authorizes again.
      */
-    public function discard(ResourceIdentifier $resource): void
+    public function discardToken(ResourceIdentifier $resource): void
     {
-        $server = $this->servers[$resource->value] ?? null;
+        $server = $this->discovered[$resource->value]->server ?? null;
 
         if (null !== $server) {
             $this->tokens->forget($resource->value, $server->issuer);
         }
+    }
+
+    /**
+     * Drops what discovery found for an MCP server, so the next authorization reads its metadata afresh and
+     * follows the server to a new authorization server.
+     */
+    public function discardDiscovery(ResourceIdentifier $resource): void
+    {
+        unset($this->discovered[$resource->value]);
     }
 
     private function runAuthorization(
@@ -138,15 +145,11 @@ final class AuthorizationCoordinator
         ?WwwAuthenticateChallenge $challenge,
         ScopeSet $additionalScopes,
     ): AccessToken {
-        $metadata = $this->discovery->discoverResource($resource, $challenge);
-
-        // A resource may name several authorization servers and the choice is the client's. Taking the
-        // first honours the order the resource published them in.
-        $server = $this->discovery->discoverServer($metadata->authorizationServers[0]);
-        $this->servers[$resource->value] = $server;
+        $discovered = $this->discover($resource, $challenge);
+        $server = $discovered->server;
 
         $registration = $this->registrar->resolve($server, $this->options);
-        $scopes = $this->selectScopes($resource, $challenge, $metadata, $server, $additionalScopes);
+        $scopes = $this->selectScopes($resource, $challenge, $discovered, $additionalScopes);
 
         $redirect = AuthorizationRequest::build(
             $server,
@@ -174,6 +177,29 @@ final class AuthorizationCoordinator
         ]);
 
         return $token;
+    }
+
+    /**
+     * Reads the metadata of an MCP server and of the authorization server it names, reusing what an earlier
+     * round already found.
+     */
+    private function discover(ResourceIdentifier $resource, ?WwwAuthenticateChallenge $challenge): DiscoveredResource
+    {
+        $cached = $this->discovered[$resource->value] ?? null;
+
+        if (null !== $cached) {
+            return $cached;
+        }
+
+        $metadata = $this->discovery->discoverResource($resource, $challenge);
+
+        // A resource may name several authorization servers and the choice is the client's. Taking the
+        // first honours the order the resource published them in.
+        $server = $this->discovery->discoverServer($metadata->authorizationServers[0]);
+        $discovered = new DiscoveredResource($metadata, $server);
+        $this->discovered[$resource->value] = $discovered;
+
+        return $discovered;
     }
 
     private function renew(ResourceIdentifier $resource, AuthorizationServerMetadata $server, AccessToken $token): ?AccessToken
@@ -209,8 +235,7 @@ final class AuthorizationCoordinator
     private function selectScopes(
         ResourceIdentifier $resource,
         ?WwwAuthenticateChallenge $challenge,
-        ProtectedResourceMetadata $metadata,
-        AuthorizationServerMetadata $server,
+        DiscoveredResource $discovered,
         ScopeSet $additionalScopes,
     ): ScopeSet {
         $challenged = $challenge?->readParameter('scope');
@@ -219,17 +244,17 @@ final class AuthorizationCoordinator
         // advertised set stands in, and a resource that advertises none leaves the parameter off.
         $scopes = null !== $challenged
             ? ScopeSet::parse($challenged)
-            : $metadata->scopesSupported ?? new ScopeSet();
+            : $discovered->metadata->scopesSupported ?? new ScopeSet();
 
         $scopes = $scopes->mergeWith($additionalScopes);
-        $granted = $this->tokens->read($resource->value, $server->issuer);
+        $granted = $this->tokens->read($resource->value, $discovered->server->issuer);
 
         // Asking for only the challenged scopes would drop permissions other operations rely on.
         if (null !== $granted) {
             $scopes = $scopes->mergeWith(new ScopeSet($granted->scopes));
         }
 
-        if ($this->options->requestOfflineAccess && \in_array(self::OFFLINE_ACCESS_SCOPE, $server->scopesSupported->values ?? [], true)) {
+        if ($this->options->requestOfflineAccess && \in_array(self::OFFLINE_ACCESS_SCOPE, $discovered->server->scopesSupported->values ?? [], true)) {
             $scopes = $scopes->mergeWith(new ScopeSet([self::OFFLINE_ACCESS_SCOPE]));
         }
 
