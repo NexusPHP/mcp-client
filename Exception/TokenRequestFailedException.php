@@ -16,13 +16,11 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server refuses a token request.
- *
- * @no-final
+ * Thrown when an authorization server refuses a token request on terms that granting again would not clear.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
  */
-class TokenRequestFailedException extends \RuntimeException implements McpExceptionInterface
+final class TokenRequestFailedException extends \RuntimeException implements McpExceptionInterface
 {
     public function __construct(public readonly string $error, ?string $description = null)
     {

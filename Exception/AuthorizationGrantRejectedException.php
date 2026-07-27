@@ -13,12 +13,22 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Exception;
 
+use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+
 /**
  * Thrown when an authorization server refuses a token request because the grant presented is spent, so the
  * resource owner has to grant again.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
  */
-final class AuthorizationGrantRejectedException extends TokenRequestFailedException
+final class AuthorizationGrantRejectedException extends \RuntimeException implements McpExceptionInterface
 {
+    public function __construct(public readonly string $error, ?string $description = null)
+    {
+        parent::__construct(\sprintf(
+            'The token request failed with "%s"%s',
+            $error,
+            null === $description ? '.' : \sprintf(': %s', $description),
+        ));
+    }
 }
