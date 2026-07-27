@@ -242,27 +242,35 @@ final class AuthorizationCoordinator
         DiscoveredResource $discovered,
         ScopeSet $additionalScopes,
     ): ScopeSet {
-        $challenged = $challenge?->readParameter('scope');
-
-        // A challenge is authoritative for the operation that provoked it. Absent one, the resource's own
-        // advertised set stands in, and a resource that advertises none leaves the parameter off.
-        $scopes = null !== $challenged
-            ? ScopeSet::parse($challenged)
-            : $discovered->metadata->scopesSupported ?? new ScopeSet();
-
-        $scopes = $scopes->mergeWith($additionalScopes);
-        $granted = $this->tokens->read($resource->value);
-
         // Asking for only the challenged scopes would drop permissions other operations rely on.
-        if (null !== $granted) {
-            $scopes = $scopes->mergeWith(new ScopeSet($granted->scopes));
-        }
+        $scopes = $this->selectBaseline($challenge, $discovered->metadata->scopesSupported)
+            ->mergeWith($additionalScopes)
+            ->mergeWith($this->readGrantedScopes($resource))
+        ;
 
-        if ($this->options->requestOfflineAccess && \in_array(self::OFFLINE_ACCESS_SCOPE, $discovered->server->scopesSupported->values ?? [], true)) {
+        $offered = $discovered->server->scopesSupported ?? new ScopeSet();
+
+        if ($this->options->requestOfflineAccess && $offered->contains(self::OFFLINE_ACCESS_SCOPE)) {
             $scopes = $scopes->mergeWith(new ScopeSet([self::OFFLINE_ACCESS_SCOPE]));
         }
 
         return $scopes;
+    }
+
+    /**
+     * The set a grant starts from: a challenge is authoritative for the operation that provoked it, then
+     * what the client declared it needs, then the resource's own advertised set. A resource that advertises
+     * none leaves the parameter off.
+     */
+    private function selectBaseline(?WwwAuthenticateChallenge $challenge, ?ScopeSet $advertised): ScopeSet
+    {
+        $challenged = $challenge?->readParameter('scope');
+
+        return match (true) {
+            null !== $challenged => ScopeSet::parse($challenged),
+            [] !== $this->options->defaultScopes => new ScopeSet($this->options->defaultScopes),
+            default => $advertised ?? new ScopeSet(),
+        };
     }
 
     /**
