@@ -194,7 +194,7 @@ final class AuthorizationCoordinator
             $scopes = $scopes->mergeWith(new ScopeSet($granted->scopes));
         }
 
-        if (\in_array(self::OFFLINE_ACCESS_SCOPE, $server->scopesSupported->values ?? [], true)) {
+        if ($this->options->requestOfflineAccess && \in_array(self::OFFLINE_ACCESS_SCOPE, $server->scopesSupported->values ?? [], true)) {
             $scopes = $scopes->mergeWith(new ScopeSet([self::OFFLINE_ACCESS_SCOPE]));
         }
 

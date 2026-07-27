@@ -27,6 +27,7 @@ final readonly class AuthorizationOptions
      * @param ?ClientRegistration $preRegistered               Credentials issued out of band, which take priority over every other mechanism
      * @param ApplicationType     $applicationType             Declared during Dynamic Client Registration
      * @param int                 $maxScopeUpgrades            How many times a request may be retried after an insufficient-scope challenge
+     * @param bool                $requestOfflineAccess        Whether to ask for `offline_access`, and with it a refresh token, where the authorization server offers it
      */
     public function __construct(
         public string $clientName,
@@ -35,6 +36,7 @@ final readonly class AuthorizationOptions
         public ?ClientRegistration $preRegistered = null,
         public ApplicationType $applicationType = ApplicationType::Native,
         public int $maxScopeUpgrades = 2,
+        public bool $requestOfflineAccess = false,
     ) {
         SecureEndpoint::verify($redirectUri, 'redirect URI');
     }
