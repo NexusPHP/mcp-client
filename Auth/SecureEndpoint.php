@@ -28,10 +28,11 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 final class SecureEndpoint
 {
     /**
-     * Verifies a URL the operator configured, which may address a loopback development server.
+     * Verifies the redirect URI the operator configured, which may address a loopback listener.
      */
-    public static function verify(string $url, string $label): void
+    public static function verifyRedirectUri(string $url): void
     {
+        $label = 'redirect URI';
         $parts = self::parse($url, $label);
 
         if ('https' === $parts['scheme'] || self::isLoopback($parts['host'])) {
@@ -54,7 +55,7 @@ final class SecureEndpoint
             return;
         }
 
-        if (self::isLoopback($parts['host']) && self::isLoopback(self::parse($resource->value, 'MCP server URL')['host'])) {
+        if (self::isLoopback($parts['host']) && self::isLoopback($resource->host)) {
             return;
         }
 
@@ -67,17 +68,14 @@ final class SecureEndpoint
      */
     public static function verifySameOrigin(string $url, string $label, ResourceIdentifier $resource): void
     {
-        $origin = self::parse($url, $label)['origin'];
-
-        if (self::parse($resource->value, 'MCP server URL')['origin'] === $origin) {
+        if ($resource->sharesOriginWith($url)) {
             return;
         }
 
         throw new UntrustedAuthorizationMetadataException(\sprintf(
-            'the %s "%s" is served from "%s" rather than by the MCP server it describes.',
+            'the %s "%s" is not served by the MCP server it describes.',
             $label,
             $url,
-            $origin,
         ));
     }
 
@@ -102,7 +100,7 @@ final class SecureEndpoint
     }
 
     /**
-     * @return array{scheme: string, host: string, origin: string, path: string}
+     * @return array{scheme: string, host: string, path: string}
      */
     private static function parse(string $url, string $label): array
     {
@@ -112,19 +110,9 @@ final class SecureEndpoint
             throw new \InvalidArgumentException(\sprintf('The %s must be an absolute URL, "%s" given.', $label, $url));
         }
 
-        $scheme = strtolower($parts['scheme']);
-        $host = strtolower($parts['host']);
-        $port = $parts['port'] ?? null;
-        $default = match ($scheme) {
-            'https' => 443,
-            'http' => 80,
-            default => null,
-        };
-
         return [
-            'scheme' => $scheme,
-            'host' => $host,
-            'origin' => $scheme.'://'.$host.(null === $port || $port === $default ? '' : ':'.$port),
+            'scheme' => strtolower($parts['scheme']),
+            'host' => strtolower($parts['host']),
             'path' => $parts['path'] ?? '',
         ];
     }

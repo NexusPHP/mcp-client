@@ -19,6 +19,7 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Nexus\Mcp\Client\Exception\InsufficientScopeException;
+use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
@@ -83,9 +84,22 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $scopeUpgrades = 0;
         $reauthorized = false;
 
+        // A token is minted for one MCP server, and a caller may hand this decorator a request aimed
+        // anywhere, so the header goes on only where the token belongs.
+        $bearsToken = $this->resource->sharesOriginWith((string) $request->getUri());
+
         while (true) {
-            $token = $this->coordinator->fetchToken($cancellation);
-            $response = $this->client->request(self::authorizeRequest($request, $token), $cancellation);
+            $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
+            $attempt = self::authorizeRequest($request, $token);
+            $response = $this->client->request($attempt, $cancellation);
+            $answered = (string) $response->getRequest()->getUri();
+
+            // An HTTP client that follows redirects re-checks the authority but not the scheme, so a `302`
+            // to cleartext would carry the bearer token onto it.
+            if (null !== $token && ! $this->resource->sharesOriginWith($answered)) {
+                throw new RedirectRefusedException((string) $attempt->getUri(), $answered);
+            }
+
             $status = $response->getStatus();
 
             if (HttpStatus::Unauthorized->value !== $status && HttpStatus::Forbidden->value !== $status) {
@@ -134,16 +148,18 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
                 self::drain($response);
                 $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge, $cancellation);
-            } else {
-                // A second challenge to a token just obtained is the server's answer, not a stale token.
-                if ($reauthorized) {
-                    return $response;
-                }
 
-                $reauthorized = true;
-                self::drain($response);
-                $this->coordinator->reauthorize($token, $challenge, $cancellation);
+                continue;
             }
+
+            // A second challenge to a token just obtained is the server's answer, not a stale token.
+            if ($reauthorized) {
+                return $response;
+            }
+
+            $reauthorized = true;
+            self::drain($response);
+            $this->coordinator->reauthorize($token, $challenge, $cancellation);
         }
     }
 

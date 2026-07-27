@@ -44,7 +44,7 @@ final readonly class AuthorizationOptions
         public InsufficientScopePolicy $onInsufficientScope = InsufficientScopePolicy::Reauthorize,
         public float $timeout = 10.0,
     ) {
-        SecureEndpoint::verify($redirectUri, 'redirect URI');
+        SecureEndpoint::verifyRedirectUri($redirectUri);
 
         if (null !== $clientIdMetadataDocumentUrl) {
             SecureEndpoint::verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
