@@ -24,7 +24,6 @@ use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
-use Nexus\Mcp\Core\Auth\WellKnownUri;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Http\HttpStatus;
 
