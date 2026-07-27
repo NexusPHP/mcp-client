@@ -84,7 +84,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $reauthorized = false;
 
         while (true) {
-            $token = $this->coordinator->fetchToken();
+            $token = $this->coordinator->fetchToken($cancellation);
             $response = $this->client->request(self::authorizeRequest($request, $token), $cancellation);
             $status = $response->getStatus();
 
@@ -133,7 +133,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 ++$scopeUpgrades;
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
                 self::drain($response);
-                $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge);
+                $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge, $cancellation);
             } else {
                 // A second challenge to a token just obtained is the server's answer, not a stale token.
                 if ($reauthorized) {
@@ -142,7 +142,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
                 $reauthorized = true;
                 self::drain($response);
-                $this->coordinator->reauthorize($token, $challenge);
+                $this->coordinator->reauthorize($token, $challenge, $cancellation);
             }
         }
     }

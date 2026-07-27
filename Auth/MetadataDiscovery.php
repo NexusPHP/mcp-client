@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
+use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Mcp\Client\Exception\AuthorizationDiscoveryFailedException;
@@ -47,8 +48,11 @@ final readonly class MetadataDiscovery
      * Reads the Protected Resource Metadata for an MCP server, preferring the URL a `WWW-Authenticate`
      * challenge advertised and falling back to the well-known URLs, path-scoped before root.
      */
-    public function discoverResource(ResourceIdentifier $resource, ?WwwAuthenticateChallenge $challenge = null): ProtectedResourceMetadata
-    {
+    public function discoverResource(
+        ResourceIdentifier $resource,
+        ?WwwAuthenticateChallenge $challenge,
+        Cancellation $cancellation,
+    ): ProtectedResourceMetadata {
         $candidates = WellKnownUri::forProtectedResource($resource->value);
         $advertised = $challenge?->readParameter('resource_metadata');
 
@@ -58,7 +62,7 @@ final readonly class MetadataDiscovery
         }
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'protected resource metadata URL', $resource);
+            $data = $this->fetch($url, 'protected resource metadata URL', $resource, $cancellation);
 
             if (null === $data) {
                 continue;
@@ -84,12 +88,15 @@ final readonly class MetadataDiscovery
      * Reads an authorization server's metadata, trying the RFC 8414 and OpenID Connect well-known URLs in
      * the order the spec fixes.
      */
-    public function discoverServer(string $issuer, ResourceIdentifier $resource): AuthorizationServerMetadata
-    {
+    public function discoverServer(
+        string $issuer,
+        ResourceIdentifier $resource,
+        Cancellation $cancellation,
+    ): AuthorizationServerMetadata {
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'authorization server metadata URL', $resource);
+            $data = $this->fetch($url, 'authorization server metadata URL', $resource, $cancellation);
 
             if (null === $data) {
                 continue;
@@ -118,12 +125,16 @@ final readonly class MetadataDiscovery
      *
      * @throws MalformedAuthorizationResponseException When the document served is not a JSON object
      */
-    private function fetch(string $url, string $label, ResourceIdentifier $resource): ?array
-    {
+    private function fetch(
+        string $url,
+        string $label,
+        ResourceIdentifier $resource,
+        Cancellation $cancellation,
+    ): ?array {
         SecureEndpoint::verifyAdvertised($url, $label, $resource);
 
         try {
-            [$status, $payload] = $this->exchange->send(new Request($url, 'GET'));
+            [$status, $payload] = $this->exchange->send(new Request($url, 'GET'), $cancellation);
         } catch (ResponseTooLargeException) {
             // A document this large is not one this client can read, so the next candidate gets its turn.
             return null;

@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
+use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
@@ -63,6 +64,7 @@ final readonly class TokenEndpoint
         string $code,
         string $redirectUri,
         ResourceIdentifier $resource,
+        Cancellation $cancellation,
     ): AccessToken {
         return $this->send($metadata, $registration, [
             'grant_type' => 'authorization_code',
@@ -70,7 +72,7 @@ final readonly class TokenEndpoint
             'redirect_uri' => $redirectUri,
             'code_verifier' => $redirect->pkce->verifier,
             'resource' => $resource->value,
-        ], $resource, $redirect->requestedScopes, null);
+        ], $resource, $redirect->requestedScopes, null, $cancellation);
     }
 
     public function refresh(
@@ -78,6 +80,7 @@ final readonly class TokenEndpoint
         ClientRegistration $registration,
         AccessToken $token,
         ResourceIdentifier $resource,
+        Cancellation $cancellation,
     ): AccessToken {
         $refreshToken = $token->refreshToken;
         Assert::that($refreshToken)->not()->isNull('The access token carries no refresh token to redeem.');
@@ -86,7 +89,7 @@ final readonly class TokenEndpoint
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'resource' => $resource->value,
-        ], $resource, new ScopeSet($token->scopes), $refreshToken);
+        ], $resource, new ScopeSet($token->scopes), $refreshToken, $cancellation);
     }
 
     /**
@@ -101,6 +104,7 @@ final readonly class TokenEndpoint
         ResourceIdentifier $resource,
         ScopeSet $requestedScopes,
         ?string $priorRefreshToken,
+        Cancellation $cancellation,
     ): AccessToken {
         $endpoint = $metadata->tokenEndpoint;
         Assert::that($endpoint)->not()->isNull(\sprintf(
@@ -128,7 +132,7 @@ final readonly class TokenEndpoint
         $request = new Request($endpoint, 'POST', http_build_query($parameters));
         $request->setHeaders($headers);
 
-        [$status, $payload] = $this->exchange->send($request);
+        [$status, $payload] = $this->exchange->send($request, $cancellation);
         $data = JsonHttpExchange::decode($payload, 'token endpoint');
 
         if ($status >= 400) {

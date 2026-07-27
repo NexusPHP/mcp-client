@@ -14,9 +14,9 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Amp\ByteStream\BufferException;
+use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
-use Amp\NullCancellation;
 use Nexus\Assert\Assert;
 use Nexus\Assert\ExpectationFailedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
@@ -45,14 +45,14 @@ final readonly class JsonHttpExchange
      *
      * @return array{int, string} The status and the buffered payload
      */
-    public function send(Request $request): array
+    public function send(Request $request, Cancellation $cancellation): array
     {
         $request->setHeader('Accept', 'application/json');
         $request->setTransferTimeout($this->timeout);
         $request->setInactivityTimeout($this->timeout);
 
         $sent = (string) $request->getUri();
-        $response = $this->client->request($request, new NullCancellation());
+        $response = $this->client->request($request, $cancellation);
         $answered = (string) $response->getRequest()->getUri();
 
         // An HTTP client that follows redirects re-checks neither the scheme nor the host of where it

@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
+use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
@@ -50,6 +51,7 @@ final readonly class ClientRegistrar
         AuthorizationServerMetadata $metadata,
         AuthorizationOptions $options,
         ResourceIdentifier $resource,
+        Cancellation $cancellation,
     ): ClientRegistration {
         $preRegistered = $options->preRegistered;
 
@@ -75,7 +77,7 @@ final readonly class ClientRegistrar
             return $stored;
         }
 
-        $registration = $this->register($metadata, $options, $resource);
+        $registration = $this->register($metadata, $options, $resource, $cancellation);
         $this->store->write($metadata->issuer, $registration);
 
         return $registration;
@@ -93,6 +95,7 @@ final readonly class ClientRegistrar
         AuthorizationServerMetadata $metadata,
         AuthorizationOptions $options,
         ResourceIdentifier $resource,
+        Cancellation $cancellation,
     ): ClientRegistration {
         $endpoint = $metadata->registrationEndpoint;
 
@@ -112,7 +115,7 @@ final readonly class ClientRegistrar
         ], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
         $request->setHeader('Content-Type', 'application/json');
 
-        [$status, $payload] = $this->exchange->send($request);
+        [$status, $payload] = $this->exchange->send($request, $cancellation);
         $data = JsonHttpExchange::decode($payload, 'registration endpoint');
 
         if ($status >= 400) {

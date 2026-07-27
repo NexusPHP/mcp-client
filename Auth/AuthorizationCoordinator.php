@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
+use Amp\Cancellation;
 use Amp\Sync\LocalSemaphore;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
@@ -78,7 +79,7 @@ final class AuthorizationCoordinator
     /**
      * The token already held, renewed when it is spent, or `null` when the client has none it can still use.
      */
-    public function fetchToken(): ?AccessToken
+    public function fetchToken(Cancellation $cancellation): ?AccessToken
     {
         $token = $this->readToken();
 
@@ -86,7 +87,7 @@ final class AuthorizationCoordinator
             return $token;
         }
 
-        return synchronized($this->lock, function () use ($token): ?AccessToken {
+        return synchronized($this->lock, function () use ($token, $cancellation): ?AccessToken {
             $current = $this->readToken();
 
             // Another caller may have renewed it while this one waited its turn.
@@ -94,7 +95,7 @@ final class AuthorizationCoordinator
                 return $current;
             }
 
-            return $this->renew($token);
+            return $this->renew($token, $cancellation);
         });
     }
 
@@ -104,9 +105,12 @@ final class AuthorizationCoordinator
      *
      * @param ?AccessToken $refused The token the MCP server refused, or `null` when the request carried none
      */
-    public function reauthorize(?AccessToken $refused, ?WwwAuthenticateChallenge $challenge): AccessToken
-    {
-        return synchronized($this->lock, function () use ($refused, $challenge): AccessToken {
+    public function reauthorize(
+        ?AccessToken $refused,
+        ?WwwAuthenticateChallenge $challenge,
+        Cancellation $cancellation,
+    ): AccessToken {
+        return synchronized($this->lock, function () use ($refused, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
             // Another caller may have replaced the refused token while this one waited its turn, and what it
@@ -117,7 +121,7 @@ final class AuthorizationCoordinator
 
             $this->giveUpOnToken();
 
-            return $this->runAuthorization($challenge, new ScopeSet());
+            return $this->runAuthorization($challenge, new ScopeSet(), $cancellation);
         });
     }
 
@@ -132,8 +136,9 @@ final class AuthorizationCoordinator
         ?AccessToken $presented,
         ScopeSet $additionalScopes,
         ?WwwAuthenticateChallenge $challenge,
+        Cancellation $cancellation,
     ): AccessToken {
-        return synchronized($this->lock, function () use ($presented, $additionalScopes, $challenge): AccessToken {
+        return synchronized($this->lock, function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
             // A token another caller obtained while this one waited its turn serves it too, but only once it
@@ -145,7 +150,7 @@ final class AuthorizationCoordinator
                 return $current;
             }
 
-            return $this->runAuthorization($challenge, $additionalScopes);
+            return $this->runAuthorization($challenge, $additionalScopes, $cancellation);
         });
     }
 
@@ -164,12 +169,15 @@ final class AuthorizationCoordinator
         return $this->tokens->read($this->resource->value);
     }
 
-    private function runAuthorization(?WwwAuthenticateChallenge $challenge, ScopeSet $additionalScopes): AccessToken
-    {
-        $discovered = $this->discover($challenge);
+    private function runAuthorization(
+        ?WwwAuthenticateChallenge $challenge,
+        ScopeSet $additionalScopes,
+        Cancellation $cancellation,
+    ): AccessToken {
+        $discovered = $this->discover($challenge, $cancellation);
         $server = $discovered->server;
 
-        $registration = $this->registrar->resolve($server, $this->options, $this->resource);
+        $registration = $this->registrar->resolve($server, $this->options, $this->resource, $cancellation);
         $scopes = $this->selectScopes($challenge, $discovered, $additionalScopes);
 
         $redirect = AuthorizationRequest::build(
@@ -180,7 +188,7 @@ final class AuthorizationCoordinator
             $scopes,
         );
 
-        $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect));
+        $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect, $cancellation));
 
         try {
             $token = $this->tokenEndpoint->exchangeCode(
@@ -190,6 +198,7 @@ final class AuthorizationCoordinator
                 $code,
                 $this->options->redirectUri,
                 $this->resource,
+                $cancellation,
             );
         } catch (ClientRegistrationRejectedException $e) {
             // The authorization code is bound to the identifier that is spent, so this grant cannot be
@@ -213,7 +222,7 @@ final class AuthorizationCoordinator
      * Reads the metadata of the MCP server and of the authorization server it names, reusing what an earlier
      * round already found.
      */
-    private function discover(?WwwAuthenticateChallenge $challenge): DiscoveredResource
+    private function discover(?WwwAuthenticateChallenge $challenge, Cancellation $cancellation): DiscoveredResource
     {
         $cached = $this->discovered;
 
@@ -221,18 +230,18 @@ final class AuthorizationCoordinator
             return $cached;
         }
 
-        $metadata = $this->discovery->discoverResource($this->resource, $challenge);
+        $metadata = $this->discovery->discoverResource($this->resource, $challenge, $cancellation);
 
         // A resource may name several authorization servers and the choice is the client's. Taking the
         // first honours the order the resource published them in.
-        $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $this->resource);
+        $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $this->resource, $cancellation);
         $discovered = new DiscoveredResource($metadata, $server);
         $this->discovered = $discovered;
 
         return $discovered;
     }
 
-    private function renew(AccessToken $token): ?AccessToken
+    private function renew(AccessToken $token, Cancellation $cancellation): ?AccessToken
     {
         if (null === $token->refreshToken) {
             $this->giveUpOnToken();
@@ -241,7 +250,7 @@ final class AuthorizationCoordinator
         }
 
         try {
-            $server = $this->discover(null)->server;
+            $server = $this->discover(null, $cancellation)->server;
         } catch (McpExceptionInterface $e) {
             // Reaching no metadata says nothing about the token. Answering `null` sends the request bare,
             // and the challenge it draws is what re-authorization needs anyway.
@@ -270,9 +279,10 @@ final class AuthorizationCoordinator
         try {
             $renewed = $this->tokenEndpoint->refresh(
                 $server,
-                $this->registrar->resolve($server, $this->options, $this->resource),
+                $this->registrar->resolve($server, $this->options, $this->resource, $cancellation),
                 $token,
                 $this->resource,
+                $cancellation,
             );
         } catch (AuthorizationGrantRejectedException|ClientRegistrationRejectedException|MalformedAuthorizationResponseException $e) {
             if ($e instanceof ClientRegistrationRejectedException) {
