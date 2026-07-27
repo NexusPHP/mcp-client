@@ -52,7 +52,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
      * @param DelegateHttpClient                $client        Inner client, which carries the authorization traffic as well as the MCP traffic
      * @param ?TokenStoreInterface              $tokens        Defaults to a store that lives only as long as the process
      * @param ?ClientRegistrationStoreInterface $registrations Defaults to a store that lives only as long as the process
-     * @param float                             $timeout       Seconds an authorization request may take
      */
     public function __construct(
         string $resource,
@@ -62,14 +61,13 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         ?TokenStoreInterface $tokens = null,
         ?ClientRegistrationStoreInterface $registrations = null,
         private readonly LoggerInterface $logger = new NullLogger(),
-        float $timeout = 10.0,
     ) {
         $this->resource = new ResourceIdentifier($resource);
         $this->client = $client;
         $this->coordinator = new AuthorizationCoordinator(
-            new MetadataDiscovery($this->client, $timeout),
-            new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $timeout),
-            new TokenEndpoint($this->client, $timeout),
+            new MetadataDiscovery($this->client, $this->options->timeout),
+            new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $this->options->timeout),
+            new TokenEndpoint($this->client, $this->options->timeout),
             $userAuthorization,
             $tokens ?? new InMemoryTokenStore(),
             $this->options,

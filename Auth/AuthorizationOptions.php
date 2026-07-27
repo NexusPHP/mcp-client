@@ -30,6 +30,7 @@ final readonly class AuthorizationOptions
      * @param bool                    $requestOfflineAccess        Whether to ask for `offline_access`, and with it a refresh token, where the authorization server offers it
      * @param list<non-empty-string>  $defaultScopes               Scopes to ask for when no challenge names any, in place of everything the resource advertises
      * @param InsufficientScopePolicy $onInsufficientScope         Whether an insufficient-scope answer steps the scopes up or is reported to the caller
+     * @param float                   $timeout                     Seconds a single authorization round trip may take
      */
     public function __construct(
         public string $clientName,
@@ -41,6 +42,7 @@ final readonly class AuthorizationOptions
         public bool $requestOfflineAccess = false,
         public array $defaultScopes = [],
         public InsufficientScopePolicy $onInsufficientScope = InsufficientScopePolicy::Reauthorize,
+        public float $timeout = 10.0,
     ) {
         SecureEndpoint::verify($redirectUri, 'redirect URI');
     }
