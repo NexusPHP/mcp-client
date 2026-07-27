@@ -110,8 +110,20 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     return $response;
                 }
 
+                $challenged = ScopeSet::parse($challenge->readParameter('scope'));
+
+                // Granting again would produce the same token and the same answer, so the only thing another
+                // round buys is a second consent screen.
+                if ($this->coordinator->readGrantedScopes($this->resource)->containsAll($challenged)) {
+                    $this->logger->warning('The scope challenge from {resource} asks for nothing the token lacks.', [
+                        'resource' => $this->resource->value,
+                    ]);
+
+                    return $response;
+                }
+
                 ++$scopeUpgrades;
-                $additionalScopes = $additionalScopes->mergeWith(ScopeSet::parse($challenge->readParameter('scope')));
+                $additionalScopes = $additionalScopes->mergeWith($challenged);
             } else {
                 // A second challenge to a token just obtained is the server's answer, not a stale token.
                 if ($reauthorized) {
