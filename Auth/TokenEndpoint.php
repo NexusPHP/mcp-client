@@ -56,7 +56,7 @@ final readonly class TokenEndpoint
             'redirect_uri' => $redirectUri,
             'code_verifier' => $redirect->pkce->verifier,
             'resource' => $resource->value,
-        ], $redirect->requestedScopes);
+        ], $redirect->requestedScopes, null);
     }
 
     public function refresh(
@@ -72,18 +72,20 @@ final readonly class TokenEndpoint
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'resource' => $resource->value,
-        ], new ScopeSet($token->scopes));
+        ], new ScopeSet($token->scopes), $refreshToken);
     }
 
     /**
      * @param array<string, string> $parameters
-     * @param ScopeSet              $requestedScopes Scopes the token carries when the response names none
+     * @param ScopeSet              $requestedScopes   Scopes the token carries when the response names none
+     * @param ?string               $priorRefreshToken Refresh token kept when the response rotates none
      */
     private function send(
         AuthorizationServerMetadata $metadata,
         ClientRegistration $registration,
         array $parameters,
         ScopeSet $requestedScopes,
+        ?string $priorRefreshToken,
     ): AccessToken {
         $endpoint = $metadata->tokenEndpoint;
         Assert::that($endpoint)->not()->isNull(\sprintf(
@@ -128,13 +130,13 @@ final readonly class TokenEndpoint
             );
         }
 
-        return self::readToken($data, $requestedScopes);
+        return self::readToken($data, $requestedScopes, $priorRefreshToken);
     }
 
     /**
      * @param array<string, mixed> $data
      */
-    private static function readToken(array $data, ScopeSet $requestedScopes): AccessToken
+    private static function readToken(array $data, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
     {
         $type = MetadataReader::readRequiredString($data, 'token_type', self::LABEL);
 
@@ -151,7 +153,9 @@ final readonly class TokenEndpoint
         return new AccessToken(
             MetadataReader::readRequiredString($data, 'access_token', self::LABEL),
             null === $lifetime ? null : time() + $lifetime,
-            MetadataReader::readString($data, 'refresh_token', self::LABEL),
+            // A server that rotates refresh tokens issues a new one and the old is spent. One that omits it
+            // leaves the prior token valid, so dropping it here would strand the client after one renewal.
+            MetadataReader::readString($data, 'refresh_token', self::LABEL) ?? $priorRefreshToken,
             null === $scope ? $requestedScopes->values : ScopeSet::parse($scope)->values,
         );
     }
