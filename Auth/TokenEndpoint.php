@@ -139,13 +139,14 @@ final readonly class TokenEndpoint
                 : new TokenRequestFailedException($error, $description);
         }
 
-        return self::readToken($data, $requestedScopes, $priorRefreshToken);
+        return self::readToken($data, $metadata->issuer, $requestedScopes, $priorRefreshToken);
     }
 
     /**
      * @param array<string, mixed> $data
+     * @param string               $issuer Stamped on the token so a store can be read back without repeating discovery
      */
-    private static function readToken(array $data, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
+    private static function readToken(array $data, string $issuer, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
     {
         $type = MetadataReader::readRequiredString($data, 'token_type', self::LABEL);
 
@@ -161,6 +162,7 @@ final readonly class TokenEndpoint
 
         return new AccessToken(
             MetadataReader::readRequiredString($data, 'access_token', self::LABEL),
+            $issuer,
             null === $lifetime ? null : time() + $lifetime,
             // A server that rotates refresh tokens issues a new one and the old is spent. One that omits it
             // leaves the prior token valid, so dropping it here would strand the client after one renewal.

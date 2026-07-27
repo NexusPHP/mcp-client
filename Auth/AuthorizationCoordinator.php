@@ -14,7 +14,6 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
-use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
@@ -93,19 +92,13 @@ final class AuthorizationCoordinator
      */
     public function fetchToken(ResourceIdentifier $resource): ?AccessToken
     {
-        $server = $this->discovered[$resource->value]->server ?? null;
-
-        if (null === $server) {
-            return null;
-        }
-
-        $token = $this->tokens->read($resource->value, $server->issuer);
+        $token = $this->tokens->read($resource->value);
 
         if (null === $token || ! self::hasExpired($token)) {
             return $token;
         }
 
-        return $this->renewals->run($resource->value, fn(): ?AccessToken => $this->renew($resource, $server, $token));
+        return $this->renewals->run($resource->value, fn(): ?AccessToken => $this->renew($resource, $token));
     }
 
     /**
@@ -113,31 +106,28 @@ final class AuthorizationCoordinator
      */
     public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
     {
-        $server = $this->discovered[$resource->value]->server ?? null;
-        $token = null === $server ? null : $this->tokens->read($resource->value, $server->issuer);
+        $token = $this->tokens->read($resource->value);
 
         return new ScopeSet(null === $token ? [] : $token->scopes);
     }
 
     /**
-     * Drops the token held for an MCP server, so the next request authorizes again.
+     * Drops what is held for an MCP server that rejected its token, reporting the scopes that token
+     * carried. Discovery goes with it, so the next authorization can follow the resource to a different
+     * authorization server.
      */
-    public function discardToken(ResourceIdentifier $resource): void
-    {
-        $server = $this->discovered[$resource->value]->server ?? null;
-
-        if (null !== $server) {
-            $this->tokens->forget($resource->value, $server->issuer);
-        }
-    }
-
-    /**
-     * Drops what discovery found for an MCP server, so the next authorization reads its metadata afresh and
-     * follows the server to a new authorization server.
-     */
-    public function discardDiscovery(ResourceIdentifier $resource): void
+    public function discardCredentials(ResourceIdentifier $resource): ScopeSet
     {
         unset($this->discovered[$resource->value]);
+        $token = $this->tokens->read($resource->value);
+
+        if (null === $token) {
+            return new ScopeSet();
+        }
+
+        $this->tokens->forget($resource->value);
+
+        return new ScopeSet($token->scopes);
     }
 
     private function runAuthorization(
@@ -169,7 +159,7 @@ final class AuthorizationCoordinator
             $this->options->redirectUri,
             $resource,
         );
-        $this->tokens->write($resource->value, $server->issuer, $token);
+        $this->tokens->write($resource->value, $token);
 
         $this->logger->info('Authorized {resource} at {issuer}.', [
             'resource' => $resource->value,
@@ -202,10 +192,24 @@ final class AuthorizationCoordinator
         return $discovered;
     }
 
-    private function renew(ResourceIdentifier $resource, AuthorizationServerMetadata $server, AccessToken $token): ?AccessToken
+    private function renew(ResourceIdentifier $resource, AccessToken $token): ?AccessToken
     {
         if (null === $token->refreshToken) {
-            $this->tokens->forget($resource->value, $server->issuer);
+            $this->tokens->forget($resource->value);
+
+            return null;
+        }
+
+        $server = $this->discover($resource, null)->server;
+
+        // A token minted by a server the resource has since moved off cannot be renewed at the new one, and
+        // must not be presented to it either.
+        if ($server->issuer !== $token->issuer) {
+            $this->logger->info('The token for {resource} was issued by {issuer}, which no longer serves it.', [
+                'resource' => $resource->value,
+                'issuer' => $token->issuer,
+            ]);
+            $this->tokens->forget($resource->value);
 
             return null;
         }
@@ -222,12 +226,12 @@ final class AuthorizationCoordinator
                 'resource' => $resource->value,
                 'reason' => $e->getMessage(),
             ]);
-            $this->tokens->forget($resource->value, $server->issuer);
+            $this->tokens->forget($resource->value);
 
             return null;
         }
 
-        $this->tokens->write($resource->value, $server->issuer, $renewed);
+        $this->tokens->write($resource->value, $renewed);
 
         return $renewed;
     }
@@ -247,7 +251,7 @@ final class AuthorizationCoordinator
             : $discovered->metadata->scopesSupported ?? new ScopeSet();
 
         $scopes = $scopes->mergeWith($additionalScopes);
-        $granted = $this->tokens->read($resource->value, $discovered->server->issuer);
+        $granted = $this->tokens->read($resource->value);
 
         // Asking for only the challenged scopes would drop permissions other operations rely on.
         if (null !== $granted) {

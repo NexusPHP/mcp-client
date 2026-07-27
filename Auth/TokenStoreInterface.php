@@ -14,8 +14,9 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Holds the access tokens a client has obtained, keyed by the MCP server the token is bound to and the
- * authorization server that issued it. Implementations are responsible for storing tokens confidentially.
+ * Holds the access tokens a client has obtained, keyed by the MCP server each token is bound to. The issuer
+ * that minted a token travels on the token itself. Implementations are responsible for storing tokens
+ * confidentially.
  *
  * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#token-theft
  */
@@ -23,11 +24,10 @@ interface TokenStoreInterface
 {
     /**
      * @param string $resource Canonical URI of the MCP server the token is bound to
-     * @param string $issuer   Issuer identifier of the authorization server that issued the token
      */
-    public function read(string $resource, string $issuer): ?AccessToken;
+    public function read(string $resource): ?AccessToken;
 
-    public function write(string $resource, string $issuer, AccessToken $token): void;
+    public function write(string $resource, AccessToken $token): void;
 
-    public function forget(string $resource, string $issuer): void;
+    public function forget(string $resource): void;
 }

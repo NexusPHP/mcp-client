@@ -24,26 +24,20 @@ final class InMemoryTokenStore implements TokenStoreInterface
     private array $tokens = [];
 
     #[\Override]
-    public function read(string $resource, string $issuer): ?AccessToken
+    public function read(string $resource): ?AccessToken
     {
-        return $this->tokens[self::buildKey($resource, $issuer)] ?? null;
+        return $this->tokens[$resource] ?? null;
     }
 
     #[\Override]
-    public function write(string $resource, string $issuer, AccessToken $token): void
+    public function write(string $resource, AccessToken $token): void
     {
-        $this->tokens[self::buildKey($resource, $issuer)] = $token;
+        $this->tokens[$resource] = $token;
     }
 
     #[\Override]
-    public function forget(string $resource, string $issuer): void
+    public function forget(string $resource): void
     {
-        unset($this->tokens[self::buildKey($resource, $issuer)]);
-    }
-
-    private static function buildKey(string $resource, string $issuer): string
-    {
-        // The length prefix keeps a resource ending in the separator from colliding with a longer issuer.
-        return \sprintf('%d:%s|%s', \strlen($resource), $resource, $issuer);
+        unset($this->tokens[$resource]);
     }
 }
