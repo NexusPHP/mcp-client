@@ -15,8 +15,6 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
-use Amp\NullCancellation;
-use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationFailedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
@@ -37,13 +35,15 @@ use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 final readonly class ClientRegistrar
 {
     private const string LABEL = 'Client registration response';
-    private const int MAX_RESPONSE_BYTES = 65536;
+
+    private JsonHttpExchange $exchange;
 
     public function __construct(
-        private DelegateHttpClient $client,
+        DelegateHttpClient $client,
         private ClientRegistrationStoreInterface $store,
-        private float $timeout = 10.0,
+        float $timeout = 10.0,
     ) {
+        $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
     public function resolve(
@@ -102,16 +102,12 @@ final readonly class ClientRegistrar
             'token_endpoint_auth_method' => TokenEndpointAuthMethod::None->value,
             'application_type' => $options->applicationType->value,
         ], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
-        $request->setHeaders(['Content-Type' => 'application/json', 'Accept' => 'application/json']);
-        $request->setTransferTimeout($this->timeout);
-        $request->setInactivityTimeout($this->timeout);
+        $request->setHeader('Content-Type', 'application/json');
 
-        $response = $this->client->request($request, new NullCancellation());
-        $payload = $response->getBody()->buffer(limit: self::MAX_RESPONSE_BYTES);
-        $data = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
-        Assert::that($data)->isMap('The registration endpoint answered with a payload that is not a JSON object.');
+        [$status, $payload] = $this->exchange->send($request);
+        $data = JsonHttpExchange::decode($payload, 'registration endpoint');
 
-        if ($response->getStatus() >= 400) {
+        if ($status >= 400) {
             throw new ClientRegistrationFailedException(
                 MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
                 MetadataReader::readString($data, 'error_description', self::LABEL),

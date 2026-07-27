@@ -13,18 +13,17 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
-use Amp\ByteStream\BufferException;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
-use Amp\NullCancellation;
-use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationDiscoveryFailedException;
+use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
+use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 use Nexus\Mcp\Core\Http\HttpStatus;
 
 /**
@@ -37,15 +36,11 @@ use Nexus\Mcp\Core\Http\HttpStatus;
  */
 final readonly class MetadataDiscovery
 {
-    private const int MAX_RESPONSE_BYTES = 65536;
+    private JsonHttpExchange $exchange;
 
-    /**
-     * Bytes of a non-answer drained before the connection carrying it is given up on instead.
-     */
-    private const int MAX_DISCARDED_BYTES = 8192;
-
-    public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
+    public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
     {
+        $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
     /**
@@ -119,36 +114,26 @@ final readonly class MetadataDiscovery
     }
 
     /**
-     * @return null|array<string, mixed> The decoded document, or `null` when nothing is served there
+     * @return null|array<string, mixed> The decoded document, or `null` when nothing usable is served there
+     *
+     * @throws MalformedAuthorizationResponseException When the document served is not a JSON object
      */
     private function fetch(string $url, string $label, ResourceIdentifier $resource): ?array
     {
         SecureEndpoint::verifyAdvertised($url, $label, $resource);
 
-        $request = new Request($url, 'GET');
-        $request->setHeader('Accept', 'application/json');
-        $request->setTransferTimeout($this->timeout);
-        $request->setInactivityTimeout($this->timeout);
-
-        $response = $this->client->request($request, new NullCancellation());
-
-        if ($response->getStatus() !== HttpStatus::Ok->value) {
-            try {
-                // Reading a miss to its end returns its connection to the pool, so the next candidate
-                // against the same host does not pay for a fresh one.
-                $response->getBody()->buffer(limit: self::MAX_DISCARDED_BYTES);
-            } catch (BufferException) {
-                // A miss this large is not worth holding the connection open for.
-            }
-
+        try {
+            [$status, $payload] = $this->exchange->send(new Request($url, 'GET'));
+        } catch (ResponseTooLargeException) {
+            // A document this large is not one this client can read, so the next candidate gets its turn.
             return null;
         }
 
-        $payload = $response->getBody()->buffer(limit: self::MAX_RESPONSE_BYTES);
-        $data = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
-        Assert::that($data)->isMap(\sprintf('The %s answered with a payload that is not a JSON object.', $label));
+        if (HttpStatus::Ok->value !== $status) {
+            return null;
+        }
 
-        return $data;
+        return JsonHttpExchange::decode($payload, $label);
     }
 
     private static function verifyPkceSupport(AuthorizationServerMetadata $metadata): void

@@ -15,7 +15,6 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
-use Amp\NullCancellation;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
@@ -37,7 +36,6 @@ use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 final readonly class TokenEndpoint
 {
     private const string LABEL = 'Token response';
-    private const int MAX_RESPONSE_BYTES = 65536;
 
     /**
      * RFC 6749 error codes that mean the grant presented cannot produce a token. Every other code is a
@@ -45,8 +43,11 @@ final readonly class TokenEndpoint
      */
     private const array GRANT_REJECTIONS = ['invalid_grant', 'invalid_scope'];
 
-    public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
+    private JsonHttpExchange $exchange;
+
+    public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
     {
+        $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
     public function exchangeCode(
@@ -102,10 +103,7 @@ final readonly class TokenEndpoint
         ));
         SecureEndpoint::verifyAdvertised($endpoint, 'token endpoint', $resource);
 
-        $headers = [
-            'Content-Type' => 'application/x-www-form-urlencoded',
-            'Accept' => 'application/json',
-        ];
+        $headers = ['Content-Type' => 'application/x-www-form-urlencoded'];
 
         // RFC 6749 lets a client authenticate one way only, so the identifier travels in the header or in
         // the body but never in both.
@@ -123,15 +121,11 @@ final readonly class TokenEndpoint
 
         $request = new Request($endpoint, 'POST', http_build_query($parameters));
         $request->setHeaders($headers);
-        $request->setTransferTimeout($this->timeout);
-        $request->setInactivityTimeout($this->timeout);
 
-        $response = $this->client->request($request, new NullCancellation());
-        $payload = $response->getBody()->buffer(limit: self::MAX_RESPONSE_BYTES);
-        $data = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
-        Assert::that($data)->isMap('The token endpoint answered with a payload that is not a JSON object.');
+        [$status, $payload] = $this->exchange->send($request);
+        $data = JsonHttpExchange::decode($payload, 'token endpoint');
 
-        if ($response->getStatus() >= 400) {
+        if ($status >= 400) {
             $error = MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_request';
             $description = MetadataReader::readString($data, 'error_description', self::LABEL);
 
