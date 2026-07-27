@@ -89,20 +89,19 @@ final class AuthorizationCoordinator
 
         // A token read back from a store may have been minted by a server the resource has since moved off,
         // and the spec forbids presenting it to the new one. Discovery is what tells the two apart, so it
-        // runs before the token is ever sent rather than after the request it would ride on.
-        if (null !== $this->discovered && ! self::hasExpired($token)) {
+        // runs before the token is ever sent rather than after the request it would ride on. A store shared
+        // with another process can hand this one a token discovery never saw, so the issuer is compared here
+        // and not merely once at the grant.
+        if ($this->discovered?->server->issuer === $token->issuer && ! self::hasExpired($token)) {
             return $token;
         }
 
-        return synchronized($this->lock, function () use ($token, $cancellation): ?AccessToken {
+        return synchronized($this->lock, function () use ($cancellation): ?AccessToken {
+            // Another caller may have replaced it while this one waited its turn, and what it obtained is
+            // held to the same checks rather than trusted for having arrived first.
             $current = $this->readToken();
 
-            // Another caller may have renewed it while this one waited its turn.
-            if (null === $current || $current->value !== $token->value) {
-                return $current;
-            }
-
-            return $this->prepareToken($current, $cancellation);
+            return null === $current ? null : $this->prepareToken($current, $cancellation);
         });
     }
 
@@ -150,8 +149,10 @@ final class AuthorizationCoordinator
             $current = $this->readToken();
 
             // A token another caller obtained while this one waited its turn serves it too, but only once it
-            // covers what this one was refused for.
-            if (null !== $current
+            // covers what this one was refused for. A token held while discovery has never succeeded is not
+            // that: it was never checked against the resource, so it cannot stand in for a grant.
+            if (null !== $this->discovered
+                && null !== $current
                 && $current->value !== $presented?->value
                 && new ScopeSet($current->scopes)->containsAll($additionalScopes)
             ) {
@@ -185,7 +186,7 @@ final class AuthorizationCoordinator
         $discovered = $this->discover($challenge, $cancellation);
         $server = $discovered->server;
 
-        $registration = $this->registrar->resolve($server, $this->options, $this->resource, $cancellation);
+        $registration = $this->registrar->resolve($server, $this->options, $cancellation);
         $scopes = $this->selectScopes($challenge, $discovered, $additionalScopes);
 
         $redirect = AuthorizationRequest::build(
@@ -242,7 +243,7 @@ final class AuthorizationCoordinator
 
         // A resource may name several authorization servers and the choice is the client's. Taking the
         // first honours the order the resource published them in.
-        $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $this->resource, $cancellation);
+        $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $cancellation);
         $discovered = new DiscoveredResource($metadata, $server);
         $this->discovered = $discovered;
 
@@ -295,7 +296,7 @@ final class AuthorizationCoordinator
         try {
             $renewed = $this->tokenEndpoint->refresh(
                 $server,
-                $this->registrar->resolve($server, $this->options, $this->resource, $cancellation),
+                $this->registrar->resolve($server, $this->options, $cancellation),
                 $token,
                 $this->resource,
                 $cancellation,

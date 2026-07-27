@@ -19,6 +19,7 @@ use Amp\Http\Client\Request;
 use Nexus\Mcp\Client\Exception\AuthorizationDiscoveryFailedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
+use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
@@ -37,6 +38,9 @@ use Nexus\Mcp\Core\Http\HttpStatus;
  */
 final readonly class MetadataDiscovery
 {
+    private const string RESOURCE_LABEL = 'protected resource metadata URL';
+    private const string SERVER_LABEL = 'authorization server metadata URL';
+
     private JsonHttpExchange $exchange;
 
     public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
@@ -57,18 +61,24 @@ final readonly class MetadataDiscovery
         $advertised = $challenge?->readParameter('resource_metadata');
 
         if (null !== $advertised) {
-            SecureEndpoint::verifySameOrigin($advertised, 'advertised protected resource metadata URL', $resource);
             array_unshift($candidates, $advertised);
         }
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'protected resource metadata URL', $resource, $cancellation);
+            // A challenge that advertises a document on another origin is naming one the MCP server does
+            // not own. That candidate is dropped rather than trusted, and rather than taken as a reason to
+            // abandon the well-known URLs the spec mandates falling back to.
+            if (! $resource->sharesOriginWith($url)) {
+                continue;
+            }
+
+            $data = $this->fetch($url, self::RESOURCE_LABEL, $cancellation);
 
             if (null === $data) {
                 continue;
             }
 
-            $metadata = ProtectedResourceMetadata::fromArray($data);
+            $metadata = self::readResource($data);
 
             if ($metadata->resource->value !== $resource->value) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
@@ -88,21 +98,21 @@ final readonly class MetadataDiscovery
      * Reads an authorization server's metadata, trying the RFC 8414 and OpenID Connect well-known URLs in
      * the order the spec fixes.
      */
-    public function discoverServer(
-        string $issuer,
-        ResourceIdentifier $resource,
-        Cancellation $cancellation,
-    ): AuthorizationServerMetadata {
+    public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
+    {
+        // Every candidate inherits the issuer's scheme and authority, so holding the issuer to HTTPS holds
+        // all of them, and it does so before an unusable one reaches the URL builder.
+        SecureEndpoint::verifyAuthorizationServerUrl($issuer, 'authorization server issuer');
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'authorization server metadata URL', $resource, $cancellation);
+            $data = $this->fetch($url, self::SERVER_LABEL, $cancellation);
 
             if (null === $data) {
                 continue;
             }
 
-            $metadata = AuthorizationServerMetadata::fromArray($data);
+            $metadata = self::readServer($data);
 
             if ($metadata->issuer !== $issuer) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
@@ -122,29 +132,60 @@ final readonly class MetadataDiscovery
 
     /**
      * @return null|array<string, mixed> The decoded document, or `null` when nothing usable is served there
-     *
-     * @throws MalformedAuthorizationResponseException When the document served is not a JSON object
      */
-    private function fetch(
-        string $url,
-        string $label,
-        ResourceIdentifier $resource,
-        Cancellation $cancellation,
-    ): ?array {
-        SecureEndpoint::verifyAdvertised($url, $label, $resource);
-
+    private function fetch(string $url, string $label, Cancellation $cancellation): ?array
+    {
         try {
             [$status, $payload] = $this->exchange->send(new Request($url, 'GET'), $cancellation);
-        } catch (ResponseTooLargeException) {
-            // A document this large is not one this client can read, so the next candidate gets its turn.
+
+            return HttpStatus::Ok->value === $status ? JsonHttpExchange::decode($payload, $label) : null;
+        } catch (\InvalidArgumentException|MalformedAuthorizationResponseException|RedirectRefusedException|ResponseTooLargeException) {
+            // The spec fixes an order of candidates to fall back through, so nothing one of them answers
+            // ends the search. A body too large to read, a payload that is not a JSON object, an answer
+            // from a URL other than the one asked, and a peer-supplied URL built out of bytes no URI may
+            // carry all leave the candidates after it their turn.
             return null;
         }
+    }
 
-        if (HttpStatus::Ok->value !== $status) {
-            return null;
+    /**
+     * @param array<string, mixed> $data
+     *
+     * @throws UntrustedAuthorizationMetadataException
+     */
+    private static function readResource(array $data): ProtectedResourceMetadata
+    {
+        try {
+            return ProtectedResourceMetadata::fromArray($data);
+        } catch (\InvalidArgumentException $e) {
+            throw self::describeUnreadable(self::RESOURCE_LABEL, $e);
         }
+    }
 
-        return JsonHttpExchange::decode($payload, $label);
+    /**
+     * @param array<string, mixed> $data
+     *
+     * @throws UntrustedAuthorizationMetadataException
+     */
+    private static function readServer(array $data): AuthorizationServerMetadata
+    {
+        try {
+            return AuthorizationServerMetadata::fromArray($data);
+        } catch (\InvalidArgumentException $e) {
+            throw self::describeUnreadable(self::SERVER_LABEL, $e);
+        }
+    }
+
+    /**
+     * Turns a field-level parse failure into one of this SDK's own exceptions, so a document a peer shaped
+     * cannot surface as an argument fault the caller has no contract for.
+     */
+    private static function describeUnreadable(string $label, \InvalidArgumentException $cause): UntrustedAuthorizationMetadataException
+    {
+        return new UntrustedAuthorizationMetadataException(
+            \sprintf('the %s answered with a document off the shape the spec fixes.', $label),
+            $cause,
+        );
     }
 
     private static function verifyPkceSupport(AuthorizationServerMetadata $metadata): void

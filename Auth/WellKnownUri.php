@@ -28,7 +28,7 @@ final class WellKnownUri
 
     /**
      * The Protected Resource Metadata URLs for an MCP endpoint, the path-scoped one first. An endpoint at
-     * the root has only the root form.
+     * the root has only the root form, and only that form keeps the resource identifier's query.
      *
      * @return list<string>
      */
@@ -42,7 +42,9 @@ final class WellKnownUri
 
         return [
             $origin.self::PROTECTED_RESOURCE.$path.$query,
-            $origin.self::PROTECTED_RESOURCE.$query,
+            // The root form is the URL RFC 9728 assigns to the resource at this origin's root. Carrying a
+            // path-scoped resource's query onto it would ask for the document of a different resource.
+            $origin.self::PROTECTED_RESOURCE,
         ];
     }
 

@@ -15,11 +15,9 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
-use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 
 /**
- * Holds every authorization endpoint an MCP client contacts to HTTPS, exempting loopback hosts where the
- * operator chose the URL or the MCP server is itself on loopback.
+ * Holds the URLs an MCP client is steered at to the transport security the spec fixes for each of them.
  *
  * @internal
  *
@@ -28,12 +26,17 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 final class SecureEndpoint
 {
     /**
-     * Verifies the redirect URI the operator configured, which may address a loopback listener.
+     * Verifies the redirect URI the operator configured, which the spec alone among these lets address a
+     * loopback listener over plain HTTP.
      */
     public static function verifyRedirectUri(string $url): void
     {
         $label = 'redirect URI';
-        $parts = self::parse($url, $label);
+        $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
+            'The %s must be an absolute URL, "%s" given.',
+            $label,
+            $url,
+        ));
 
         if ('https' === $parts['scheme'] || self::isLoopback($parts['host'])) {
             return;
@@ -43,40 +46,33 @@ final class SecureEndpoint
     }
 
     /**
-     * Verifies a URL an MCP server or an authorization server advertised. Plain HTTP is admitted only when
-     * the MCP server is itself on loopback, so a peer reached over the public internet cannot steer the
-     * client at a loopback or private-network address it could not otherwise reach.
+     * Verifies a URL an authorization server publishes for itself, which the spec holds to HTTPS with no
+     * exemption. This checks the transport the URL names, not where it leads: a private-network or
+     * link-local destination reached over HTTPS is admitted.
+     *
+     * A fragment is refused alongside cleartext because this client appends `state` and `code_challenge` to
+     * the authorization endpoint as query parameters, which a fragment would swallow before the server saw
+     * them.
      */
-    public static function verifyAdvertised(string $url, string $label, ResourceIdentifier $resource): void
+    public static function verifyAuthorizationServerUrl(string $url, string $label): void
     {
-        $parts = self::parse($url, $label);
+        $parts = self::parse($url);
 
-        if ('https' === $parts['scheme']) {
-            return;
+        if (null === $parts || 'https' !== $parts['scheme']) {
+            throw new UntrustedAuthorizationMetadataException(\sprintf(
+                'the %s "%s" is not an absolute HTTPS URL.',
+                $label,
+                $url,
+            ));
         }
 
-        if (self::isLoopback($parts['host']) && self::isLoopback($resource->host)) {
-            return;
+        if ('' !== $parts['fragment']) {
+            throw new UntrustedAuthorizationMetadataException(\sprintf(
+                'the %s "%s" carries a fragment.',
+                $label,
+                $url,
+            ));
         }
-
-        throw new UntrustedAuthorizationMetadataException(\sprintf('the %s "%s" is not served over HTTPS.', $label, $url));
-    }
-
-    /**
-     * Verifies that an advertised URL shares the MCP server's origin, which is what stops a hostile server
-     * from naming a metadata document it does not own.
-     */
-    public static function verifySameOrigin(string $url, string $label, ResourceIdentifier $resource): void
-    {
-        if ($resource->sharesOriginWith($url)) {
-            return;
-        }
-
-        throw new UntrustedAuthorizationMetadataException(\sprintf(
-            'the %s "%s" is not served by the MCP server it describes.',
-            $label,
-            $url,
-        ));
     }
 
     /**
@@ -88,7 +84,11 @@ final class SecureEndpoint
     public static function verifyClientIdMetadataDocumentUrl(string $url): void
     {
         $label = 'Client ID Metadata Document URL';
-        $parts = self::parse($url, $label);
+        $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
+            'The %s must be an absolute URL, "%s" given.',
+            $label,
+            $url,
+        ));
 
         if ('https' !== $parts['scheme'] || '' === $parts['path'] || '/' === $parts['path']) {
             throw new \InvalidArgumentException(\sprintf(
@@ -100,20 +100,21 @@ final class SecureEndpoint
     }
 
     /**
-     * @return array{scheme: string, host: string, path: string}
+     * @return null|array{scheme: string, host: string, path: string, fragment: string}
      */
-    private static function parse(string $url, string $label): array
+    private static function parse(string $url): ?array
     {
         $parts = parse_url($url);
 
         if (false === $parts || ! isset($parts['scheme'], $parts['host'])) {
-            throw new \InvalidArgumentException(\sprintf('The %s must be an absolute URL, "%s" given.', $label, $url));
+            return null;
         }
 
         return [
             'scheme' => strtolower($parts['scheme']),
             'host' => strtolower($parts['host']),
             'path' => $parts['path'] ?? '',
+            'fragment' => $parts['fragment'] ?? '',
         ];
     }
 

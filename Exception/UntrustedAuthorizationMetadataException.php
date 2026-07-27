@@ -23,8 +23,11 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  */
 final class UntrustedAuthorizationMetadataException extends \RuntimeException implements McpExceptionInterface
 {
-    public function __construct(string $reason)
+    public function __construct(string $reason, ?\Throwable $previous = null)
     {
-        parent::__construct(\sprintf('The authorization metadata cannot be trusted because %s', $reason));
+        parent::__construct(
+            \sprintf('The authorization metadata cannot be trusted because %s', $reason),
+            previous: $previous,
+        );
     }
 }

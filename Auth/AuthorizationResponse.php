@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\AuthorizationDeniedException;
 use Nexus\Mcp\Client\Exception\InvalidAuthorizationResponseException;
+use Nexus\Mcp\Core\Auth\MetadataReader;
 
 /**
  * Validates an authorization response against the request it answers and yields the authorization code.
@@ -25,6 +26,8 @@ use Nexus\Mcp\Client\Exception\InvalidAuthorizationResponseException;
  */
 final class AuthorizationResponse
 {
+    private const string LABEL = 'Authorization response';
+
     public static function readCode(AuthorizationRedirect $redirect, AuthorizationCallback $callback): string
     {
         $parameters = $callback->parameters;
@@ -37,10 +40,10 @@ final class AuthorizationResponse
         // surface the error the response carries.
         self::validateIssuer($redirect, $parameters);
 
-        $error = $parameters['error'] ?? null;
+        $error = MetadataReader::readErrorField($parameters, 'error', self::LABEL);
 
         if (null !== $error) {
-            throw new AuthorizationDeniedException($error, $parameters['error_description'] ?? null);
+            throw new AuthorizationDeniedException($error, MetadataReader::readErrorField($parameters, 'error_description', self::LABEL));
         }
 
         $code = $parameters['code'] ?? null;

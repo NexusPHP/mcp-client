@@ -16,6 +16,7 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
+use Amp\Http\Client\HttpException;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Nexus\Mcp\Client\Exception\InsufficientScopeException;
@@ -92,12 +93,19 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
             $attempt = self::authorizeRequest($request, $token);
             $response = $this->client->request($attempt, $cancellation);
-            $answered = (string) $response->getRequest()->getUri();
+            $strayed = null === $token ? null : $this->findHopOffOrigin($response);
 
-            // An HTTP client that follows redirects re-checks the authority but not the scheme, so a `302`
-            // to cleartext would carry the bearer token onto it.
-            if (null !== $token && ! $this->resource->sharesOriginWith($answered)) {
-                throw new RedirectRefusedException((string) $attempt->getUri(), $answered);
+            if (null !== $strayed) {
+                self::drain($response);
+
+                throw new RedirectRefusedException((string) $attempt->getUri(), $strayed);
+            }
+
+            if (! $bearsToken) {
+                // A challenge from anywhere but this MCP server steers nothing here. Its scopes would reach
+                // the consent screen at the real authorization server, and the token that consent granted
+                // would replace the one held for this one.
+                return $response;
             }
 
             $status = $response->getStatus();
@@ -134,8 +142,9 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 }
 
                 // Granting again would produce the same token and the same answer, so the only thing another
-                // round buys is a second consent screen.
-                if ($this->coordinator->readGrantedScopes()->containsAll($challenged)) {
+                // round buys is a second consent screen. What settles that is the token this attempt
+                // presented: what the client was granted at some point says nothing about what it holds now.
+                if (new ScopeSet($token->scopes ?? [])->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
                         'scopes' => $challenged->toParameter() ?? 'no scope at all',
@@ -164,6 +173,27 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     }
 
     /**
+     * The URL of the hop that left this MCP server's origin, walking a redirect chain back from the answer,
+     * or `null` when every hop stayed on it.
+     *
+     * An HTTP client that follows redirects strips credentials only when the authority changes, and an
+     * authority carries no scheme, so a hop from HTTPS to cleartext on the same host takes the bearer token
+     * with it. Checking only where the chain ended would miss exactly that hop.
+     */
+    private function findHopOffOrigin(Response $response): ?string
+    {
+        for ($hop = $response; null !== $hop; $hop = $hop->getPreviousResponse()) {
+            $url = (string) $hop->getRequest()->getUri();
+
+            if (! $this->resource->sharesOriginWith($url)) {
+                return $url;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Reads a challenge body to its end so its connection returns to the pool. An undrained body cancels
      * instead, which tears the connection down for the whole of the authorization flow, user included.
      */
@@ -171,9 +201,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     {
         try {
             $response->getBody()->buffer(limit: self::MAX_CHALLENGE_BODY_BYTES);
-        } catch (StreamException) {
+        } catch (HttpException|StreamException) {
             // Losing the body of a challenge is never a reason to abandon the recovery it asked for. This
-            // covers the oversized case and a connection that dies partway through it alike.
+            // covers the oversized case, a connection that dies partway through it, and a body the server
+            // framed so badly that the parser gives up on it.
         }
     }
 

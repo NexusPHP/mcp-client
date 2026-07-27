@@ -21,7 +21,6 @@ use Nexus\Mcp\Client\Exception\ClientRegistrationFailedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
-use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 
 /**
@@ -50,7 +49,6 @@ final readonly class ClientRegistrar
     public function resolve(
         AuthorizationServerMetadata $metadata,
         AuthorizationOptions $options,
-        ResourceIdentifier $resource,
         Cancellation $cancellation,
     ): ClientRegistration {
         $preRegistered = $options->preRegistered;
@@ -77,7 +75,7 @@ final readonly class ClientRegistrar
             return $stored;
         }
 
-        $registration = $this->register($metadata, $options, $resource, $cancellation);
+        $registration = $this->register($metadata, $options, $cancellation);
         $this->store->write($metadata->issuer, $registration);
 
         return $registration;
@@ -94,7 +92,6 @@ final readonly class ClientRegistrar
     private function register(
         AuthorizationServerMetadata $metadata,
         AuthorizationOptions $options,
-        ResourceIdentifier $resource,
         Cancellation $cancellation,
     ): ClientRegistration {
         $endpoint = $metadata->registrationEndpoint;
@@ -103,7 +100,7 @@ final readonly class ClientRegistrar
             throw new ClientRegistrationRequiredException($metadata->issuer);
         }
 
-        SecureEndpoint::verifyAdvertised($endpoint, 'registration endpoint', $resource);
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'registration endpoint');
 
         $request = new Request($endpoint, 'POST', json_encode([
             'client_name' => $options->clientName,
@@ -120,8 +117,8 @@ final readonly class ClientRegistrar
 
         if ($status >= 400) {
             throw new ClientRegistrationFailedException(
-                MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
-                MetadataReader::readString($data, 'error_description', self::LABEL),
+                MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
+                MetadataReader::readErrorField($data, 'error_description', self::LABEL),
             );
         }
 

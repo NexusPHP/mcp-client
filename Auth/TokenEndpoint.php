@@ -19,6 +19,7 @@ use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
+use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
@@ -26,6 +27,7 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
+use Nexus\Mcp\Core\Http\HttpStatus;
 
 /**
  * Redeems an authorization code, and later a refresh token, at an authorization server's token endpoint.
@@ -50,6 +52,11 @@ final readonly class TokenEndpoint
      */
     private const string CLIENT_REJECTION = 'invalid_client';
 
+    /**
+     * Longest lifetime an `expires_in` is read as, ten years in seconds.
+     */
+    private const int MAX_LIFETIME_SECONDS = 315_360_000;
+
     private JsonHttpExchange $exchange;
 
     public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
@@ -72,7 +79,7 @@ final readonly class TokenEndpoint
             'redirect_uri' => $redirectUri,
             'code_verifier' => $redirect->pkce->verifier,
             'resource' => $resource->value,
-        ], $resource, $redirect->requestedScopes, null, $cancellation);
+        ], $redirect->requestedScopes, null, $cancellation);
     }
 
     public function refresh(
@@ -89,7 +96,7 @@ final readonly class TokenEndpoint
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'resource' => $resource->value,
-        ], $resource, new ScopeSet($token->scopes), $refreshToken, $cancellation);
+        ], new ScopeSet($token->scopes), $refreshToken, $cancellation);
     }
 
     /**
@@ -101,7 +108,6 @@ final readonly class TokenEndpoint
         AuthorizationServerMetadata $metadata,
         ClientRegistration $registration,
         array $parameters,
-        ResourceIdentifier $resource,
         ScopeSet $requestedScopes,
         ?string $priorRefreshToken,
         Cancellation $cancellation,
@@ -111,7 +117,7 @@ final readonly class TokenEndpoint
             'The authorization server "%s" publishes no token endpoint.',
             $metadata->issuer,
         ));
-        SecureEndpoint::verifyAdvertised($endpoint, 'token endpoint', $resource);
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'token endpoint');
 
         $headers = ['Content-Type' => 'application/x-www-form-urlencoded'];
 
@@ -133,11 +139,26 @@ final readonly class TokenEndpoint
         $request->setHeaders($headers);
 
         [$status, $payload] = $this->exchange->send($request, $cancellation);
-        $data = JsonHttpExchange::decode($payload, 'token endpoint');
 
-        if ($status >= 400) {
-            $error = MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_request';
-            $description = MetadataReader::readString($data, 'error_description', self::LABEL);
+        try {
+            $data = JsonHttpExchange::decode($payload, 'token endpoint');
+        } catch (MalformedAuthorizationResponseException $e) {
+            if (HttpStatus::Ok->value === $status) {
+                throw $e;
+            }
+
+            // An error status whose body will not parse is the infrastructure in front of the authorization
+            // server talking, not the server refusing the grant. Letting the malformed answer through would
+            // have the caller read it as a spent grant and drop a refresh token that is still good.
+            throw new TokenRequestFailedException(
+                'invalid_request',
+                \sprintf('The token endpoint answered %d with a body that is not a JSON object.', $status),
+            );
+        }
+
+        if ($status >= HttpStatus::BadRequest->value) {
+            $error = MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_request';
+            $description = MetadataReader::readErrorField($data, 'error_description', self::LABEL);
 
             throw match (true) {
                 self::CLIENT_REJECTION === $error => new ClientRegistrationRejectedException($description),
@@ -170,7 +191,9 @@ final readonly class TokenEndpoint
         return new AccessToken(
             MetadataReader::readRequiredString($data, 'access_token', self::LABEL),
             $issuer,
-            null === $lifetime ? null : time() + $lifetime,
+            // A lifetime read as sent would overflow the clock it is added to into a float, which the token
+            // rejects with a `TypeError` no caller can recover from.
+            null === $lifetime ? null : time() + min($lifetime, self::MAX_LIFETIME_SECONDS),
             // A server that rotates refresh tokens issues a new one and the old is spent. One that omits it
             // leaves the prior token valid, so dropping it here would strand the client after one renewal.
             MetadataReader::readString($data, 'refresh_token', self::LABEL) ?? $priorRefreshToken,

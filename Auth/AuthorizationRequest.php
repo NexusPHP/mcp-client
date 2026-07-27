@@ -41,7 +41,7 @@ final class AuthorizationRequest
             'The authorization server "%s" publishes no authorization endpoint.',
             $metadata->issuer,
         ));
-        SecureEndpoint::verifyAdvertised($endpoint, 'authorization endpoint', $resource);
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'authorization endpoint');
 
         $pkce = PkcePair::generate();
         $state = bin2hex(random_bytes(self::STATE_BYTES));
