@@ -83,7 +83,14 @@ final class AuthorizationCoordinator
     {
         $token = $this->readToken();
 
-        if (null === $token || ! self::hasExpired($token)) {
+        if (null === $token) {
+            return null;
+        }
+
+        // A token read back from a store may have been minted by a server the resource has since moved off,
+        // and the spec forbids presenting it to the new one. Discovery is what tells the two apart, so it
+        // runs before the token is ever sent rather than after the request it would ride on.
+        if (null !== $this->discovered && ! self::hasExpired($token)) {
             return $token;
         }
 
@@ -95,7 +102,7 @@ final class AuthorizationCoordinator
                 return $current;
             }
 
-            return $this->renew($token, $cancellation);
+            return $this->prepareToken($current, $cancellation);
         });
     }
 
@@ -114,8 +121,9 @@ final class AuthorizationCoordinator
             $current = $this->readToken();
 
             // Another caller may have replaced the refused token while this one waited its turn, and what it
-            // obtained serves this one too.
-            if (null !== $current && $current->value !== $refused?->value) {
+            // obtained serves this one too. A token held while discovery has never succeeded is not that: it
+            // was never presented, and this challenge is the first thing that can say where to check it.
+            if (null !== $this->discovered && null !== $current && $current->value !== $refused?->value) {
                 return $current;
             }
 
@@ -241,20 +249,18 @@ final class AuthorizationCoordinator
         return $discovered;
     }
 
-    private function renew(AccessToken $token, Cancellation $cancellation): ?AccessToken
+    /**
+     * Makes a held token fit to present: its issuer is confirmed to be the one the resource still names, and
+     * a spent one is renewed. Answers `null` when neither holds, which sends the request bare.
+     */
+    private function prepareToken(AccessToken $token, Cancellation $cancellation): ?AccessToken
     {
-        if (null === $token->refreshToken) {
-            $this->giveUpOnToken();
-
-            return null;
-        }
-
         try {
             $server = $this->discover(null, $cancellation)->server;
         } catch (McpExceptionInterface $e) {
             // Reaching no metadata says nothing about the token. Answering `null` sends the request bare,
             // and the challenge it draws is what re-authorization needs anyway.
-            $this->logger->info('Renewing the token for {resource} found no metadata to renew it against. {reason}', [
+            $this->logger->info('The token for {resource} could not be checked against any metadata. {reason}', [
                 'resource' => $this->resource->value,
                 'reason' => $e->getMessage(),
             ]);
@@ -272,6 +278,16 @@ final class AuthorizationCoordinator
             $this->granted = new ScopeSet();
             $this->discovered = null;
             $this->tokens->forget($this->resource->value);
+
+            return null;
+        }
+
+        if (! self::hasExpired($token)) {
+            return $token;
+        }
+
+        if (null === $token->refreshToken) {
+            $this->giveUpOnToken();
 
             return null;
         }
