@@ -139,7 +139,7 @@ final class AuthorizationCoordinator
         $discovered = $this->discover($resource, $challenge);
         $server = $discovered->server;
 
-        $registration = $this->registrar->resolve($server, $this->options);
+        $registration = $this->registrar->resolve($server, $this->options, $resource);
         $scopes = $this->selectScopes($resource, $challenge, $discovered, $additionalScopes);
 
         $redirect = AuthorizationRequest::build(
@@ -186,7 +186,7 @@ final class AuthorizationCoordinator
 
         // A resource may name several authorization servers and the choice is the client's. Taking the
         // first honours the order the resource published them in.
-        $server = $this->discovery->discoverServer($metadata->authorizationServers[0]);
+        $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $resource);
         $discovered = new DiscoveredResource($metadata, $server);
         $this->discovered[$resource->value] = $discovered;
 
@@ -230,7 +230,7 @@ final class AuthorizationCoordinator
         try {
             $renewed = $this->tokenEndpoint->refresh(
                 $server,
-                $this->registrar->resolve($server, $this->options),
+                $this->registrar->resolve($server, $this->options, $resource),
                 $token,
                 $resource,
             );

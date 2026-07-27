@@ -22,6 +22,7 @@ use Nexus\Mcp\Client\Exception\ClientRegistrationFailedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
+use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 
 /**
@@ -45,8 +46,11 @@ final readonly class ClientRegistrar
     ) {
     }
 
-    public function resolve(AuthorizationServerMetadata $metadata, AuthorizationOptions $options): ClientRegistration
-    {
+    public function resolve(
+        AuthorizationServerMetadata $metadata,
+        AuthorizationOptions $options,
+        ResourceIdentifier $resource,
+    ): ClientRegistration {
         $preRegistered = $options->preRegistered;
 
         if (null !== $preRegistered) {
@@ -60,8 +64,6 @@ final readonly class ClientRegistrar
         $documentUrl = $options->clientIdMetadataDocumentUrl;
 
         if (null !== $documentUrl && true === $metadata->clientIdMetadataDocumentSupported) {
-            SecureEndpoint::verify($documentUrl, 'Client ID Metadata Document URL');
-
             // A document URL is resolved by the authorization server on demand, so it is portable across
             // servers and never stored against one.
             return new ClientRegistration($documentUrl, $metadata->issuer);
@@ -73,21 +75,24 @@ final readonly class ClientRegistrar
             return $stored;
         }
 
-        $registration = $this->register($metadata, $options);
+        $registration = $this->register($metadata, $options, $resource);
         $this->store->write($metadata->issuer, $registration);
 
         return $registration;
     }
 
-    private function register(AuthorizationServerMetadata $metadata, AuthorizationOptions $options): ClientRegistration
-    {
+    private function register(
+        AuthorizationServerMetadata $metadata,
+        AuthorizationOptions $options,
+        ResourceIdentifier $resource,
+    ): ClientRegistration {
         $endpoint = $metadata->registrationEndpoint;
 
         if (null === $endpoint) {
             throw new ClientRegistrationRequiredException($metadata->issuer);
         }
 
-        SecureEndpoint::verify($endpoint, 'registration endpoint');
+        SecureEndpoint::verifyAdvertised($endpoint, 'registration endpoint', $resource);
 
         $request = new Request($endpoint, 'POST', json_encode([
             'client_name' => $options->clientName,

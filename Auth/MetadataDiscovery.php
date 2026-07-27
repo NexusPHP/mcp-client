@@ -58,11 +58,12 @@ final readonly class MetadataDiscovery
         $advertised = $challenge?->readParameter('resource_metadata');
 
         if (null !== $advertised) {
+            SecureEndpoint::verifySameOrigin($advertised, 'advertised protected resource metadata URL', $resource);
             array_unshift($candidates, $advertised);
         }
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'protected resource metadata URL');
+            $data = $this->fetch($url, 'protected resource metadata URL', $resource);
 
             if (null === $data) {
                 continue;
@@ -88,12 +89,12 @@ final readonly class MetadataDiscovery
      * Reads an authorization server's metadata, trying the RFC 8414 and OpenID Connect well-known URLs in
      * the order the spec fixes.
      */
-    public function discoverServer(string $issuer): AuthorizationServerMetadata
+    public function discoverServer(string $issuer, ResourceIdentifier $resource): AuthorizationServerMetadata
     {
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, 'authorization server metadata URL');
+            $data = $this->fetch($url, 'authorization server metadata URL', $resource);
 
             if (null === $data) {
                 continue;
@@ -120,9 +121,9 @@ final readonly class MetadataDiscovery
     /**
      * @return null|array<string, mixed> The decoded document, or `null` when nothing is served there
      */
-    private function fetch(string $url, string $label): ?array
+    private function fetch(string $url, string $label, ResourceIdentifier $resource): ?array
     {
-        SecureEndpoint::verify($url, $label);
+        SecureEndpoint::verifyAdvertised($url, $label, $resource);
 
         $request = new Request($url, 'GET');
         $request->setHeader('Accept', 'application/json');

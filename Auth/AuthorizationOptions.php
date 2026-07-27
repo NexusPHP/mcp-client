@@ -45,5 +45,9 @@ final readonly class AuthorizationOptions
         public float $timeout = 10.0,
     ) {
         SecureEndpoint::verify($redirectUri, 'redirect URI');
+
+        if (null !== $clientIdMetadataDocumentUrl) {
+            SecureEndpoint::verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
+        }
     }
 }

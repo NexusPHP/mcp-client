@@ -63,7 +63,7 @@ final readonly class TokenEndpoint
             'redirect_uri' => $redirectUri,
             'code_verifier' => $redirect->pkce->verifier,
             'resource' => $resource->value,
-        ], $redirect->requestedScopes, null);
+        ], $resource, $redirect->requestedScopes, null);
     }
 
     public function refresh(
@@ -79,7 +79,7 @@ final readonly class TokenEndpoint
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'resource' => $resource->value,
-        ], new ScopeSet($token->scopes), $refreshToken);
+        ], $resource, new ScopeSet($token->scopes), $refreshToken);
     }
 
     /**
@@ -91,6 +91,7 @@ final readonly class TokenEndpoint
         AuthorizationServerMetadata $metadata,
         ClientRegistration $registration,
         array $parameters,
+        ResourceIdentifier $resource,
         ScopeSet $requestedScopes,
         ?string $priorRefreshToken,
     ): AccessToken {
@@ -99,7 +100,7 @@ final readonly class TokenEndpoint
             'The authorization server "%s" publishes no token endpoint.',
             $metadata->issuer,
         ));
-        SecureEndpoint::verify($endpoint, 'token endpoint');
+        SecureEndpoint::verifyAdvertised($endpoint, 'token endpoint', $resource);
 
         $headers = [
             'Content-Type' => 'application/x-www-form-urlencoded',

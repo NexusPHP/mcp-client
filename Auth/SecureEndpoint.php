@@ -14,10 +14,12 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
+use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
+use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 
 /**
- * Holds every authorization endpoint an MCP client contacts to HTTPS, exempting loopback hosts so a local
- * development authorization server stays reachable.
+ * Holds every authorization endpoint an MCP client contacts to HTTPS, exempting loopback hosts where the
+ * operator chose the URL or the MCP server is itself on loopback.
  *
  * @internal
  *
@@ -25,7 +27,84 @@ use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
  */
 final class SecureEndpoint
 {
+    /**
+     * Verifies a URL the operator configured, which may address a loopback development server.
+     */
     public static function verify(string $url, string $label): void
+    {
+        $parts = self::parse($url, $label);
+
+        if ('https' === $parts['scheme'] || self::isLoopback($parts['host'])) {
+            return;
+        }
+
+        throw new InsecureAuthorizationEndpointException($label, $url);
+    }
+
+    /**
+     * Verifies a URL an MCP server or an authorization server advertised. Plain HTTP is admitted only when
+     * the MCP server is itself on loopback, so a peer reached over the public internet cannot steer the
+     * client at a loopback or private-network address it could not otherwise reach.
+     */
+    public static function verifyAdvertised(string $url, string $label, ResourceIdentifier $resource): void
+    {
+        $parts = self::parse($url, $label);
+
+        if ('https' === $parts['scheme']) {
+            return;
+        }
+
+        if (self::isLoopback($parts['host']) && self::isLoopback(self::parse($resource->value, 'MCP server URL')['host'])) {
+            return;
+        }
+
+        throw new UntrustedAuthorizationMetadataException(\sprintf('the %s "%s" is not served over HTTPS.', $label, $url));
+    }
+
+    /**
+     * Verifies that an advertised URL shares the MCP server's origin, which is what stops a hostile server
+     * from naming a metadata document it does not own.
+     */
+    public static function verifySameOrigin(string $url, string $label, ResourceIdentifier $resource): void
+    {
+        $origin = self::parse($url, $label)['origin'];
+
+        if (self::parse($resource->value, 'MCP server URL')['origin'] === $origin) {
+            return;
+        }
+
+        throw new UntrustedAuthorizationMetadataException(\sprintf(
+            'the %s "%s" is served from "%s" rather than by the MCP server it describes.',
+            $label,
+            $url,
+            $origin,
+        ));
+    }
+
+    /**
+     * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a path so
+     * one host can serve more than one document.
+     *
+     * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration
+     */
+    public static function verifyClientIdMetadataDocumentUrl(string $url): void
+    {
+        $label = 'Client ID Metadata Document URL';
+        $parts = self::parse($url, $label);
+
+        if ('https' !== $parts['scheme'] || '' === $parts['path'] || '/' === $parts['path']) {
+            throw new \InvalidArgumentException(\sprintf(
+                'The %s must be an HTTPS URL carrying a path component, "%s" given.',
+                $label,
+                $url,
+            ));
+        }
+    }
+
+    /**
+     * @return array{scheme: string, host: string, origin: string, path: string}
+     */
+    private static function parse(string $url, string $label): array
     {
         $parts = parse_url($url);
 
@@ -33,17 +112,27 @@ final class SecureEndpoint
             throw new \InvalidArgumentException(\sprintf('The %s must be an absolute URL, "%s" given.', $label, $url));
         }
 
-        if (strtolower($parts['scheme']) === 'https' || self::isLoopback($parts['host'])) {
-            return;
-        }
+        $scheme = strtolower($parts['scheme']);
+        $host = strtolower($parts['host']);
+        $port = $parts['port'] ?? null;
+        $default = match ($scheme) {
+            'https' => 443,
+            'http' => 80,
+            default => null,
+        };
 
-        throw new InsecureAuthorizationEndpointException($label, $url);
+        return [
+            'scheme' => $scheme,
+            'host' => $host,
+            'origin' => $scheme.'://'.$host.(null === $port || $port === $default ? '' : ':'.$port),
+            'path' => $parts['path'] ?? '',
+        ];
     }
 
     private static function isLoopback(string $host): bool
     {
         // A bracketed IPv6 literal reaches here with its delimiters still attached.
-        $host = strtolower(trim($host, '[]'));
+        $host = trim($host, '[]');
 
         return 'localhost' === $host
             || '::1' === $host
