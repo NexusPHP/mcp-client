@@ -34,15 +34,15 @@ final class WellKnownUri
      */
     public static function forProtectedResource(string $resource): array
     {
-        [$origin, $path] = self::splitOrigin($resource);
+        [$origin, $path, $query] = self::splitOrigin($resource);
 
         if ('' === $path) {
-            return [$origin.self::PROTECTED_RESOURCE];
+            return [$origin.self::PROTECTED_RESOURCE.$query];
         }
 
         return [
-            $origin.self::PROTECTED_RESOURCE.$path,
-            $origin.self::PROTECTED_RESOURCE,
+            $origin.self::PROTECTED_RESOURCE.$path.$query,
+            $origin.self::PROTECTED_RESOURCE.$query,
         ];
     }
 
@@ -54,6 +54,7 @@ final class WellKnownUri
      */
     public static function forAuthorizationServer(string $issuer): array
     {
+        // RFC 8414 forbids a query on an issuer identifier, so only the resource half carries one.
         [$origin, $path] = self::splitOrigin($issuer);
 
         if ('' === $path) {
@@ -71,7 +72,9 @@ final class WellKnownUri
     }
 
     /**
-     * @return array{string, string} The origin and the path, the path empty when the URI addresses the root
+     * @return array{string, string, string} The origin, the path and the query, each empty when the URI
+     *                                       carries none. A resource identifier keeps its query, so the
+     *                                       document that describes it is asked for under the same one.
      */
     private static function splitOrigin(string $uri): array
     {
@@ -92,6 +95,7 @@ final class WellKnownUri
                 isset($parts['port']) ? ':'.$parts['port'] : '',
             ),
             rtrim($parts['path'] ?? '', '/'),
+            isset($parts['query']) ? '?'.$parts['query'] : '',
         ];
     }
 }
