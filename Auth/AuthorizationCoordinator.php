@@ -48,6 +48,16 @@ final class AuthorizationCoordinator
      */
     private array $servers = [];
 
+    /**
+     * @var SharedFlow<AccessToken>
+     */
+    private SharedFlow $authorizations;
+
+    /**
+     * @var SharedFlow<?AccessToken>
+     */
+    private SharedFlow $renewals;
+
     public function __construct(
         private readonly MetadataDiscovery $discovery,
         private readonly ClientRegistrar $registrar,
@@ -57,10 +67,13 @@ final class AuthorizationCoordinator
         private readonly AuthorizationOptions $options,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
+        $this->authorizations = new SharedFlow();
+        $this->renewals = new SharedFlow();
     }
 
     /**
-     * Obtains a fresh token for an MCP server, running the full authorization flow.
+     * Obtains a fresh token for an MCP server, running the full authorization flow, or joins the flow
+     * already running for that server.
      *
      * @param ScopeSet $additionalScopes Scopes an insufficient-scope challenge asked for, accumulated onto
      *                                   the set already granted
@@ -69,6 +82,61 @@ final class AuthorizationCoordinator
         ResourceIdentifier $resource,
         ?WwwAuthenticateChallenge $challenge = null,
         ScopeSet $additionalScopes = new ScopeSet(),
+    ): AccessToken {
+        return $this->authorizations->run(
+            self::buildGrantKey($resource, $challenge, $additionalScopes),
+            fn(): AccessToken => $this->runAuthorization($resource, $challenge, $additionalScopes),
+        );
+    }
+
+    /**
+     * The token already held for an MCP server, renewed when it is spent, or `null` when the client has
+     * none it can still use.
+     */
+    public function fetchToken(ResourceIdentifier $resource): ?AccessToken
+    {
+        $server = $this->servers[$resource->value] ?? null;
+
+        if (null === $server) {
+            return null;
+        }
+
+        $token = $this->tokens->read($resource->value, $server->issuer);
+
+        if (null === $token || ! self::hasExpired($token)) {
+            return $token;
+        }
+
+        return $this->renewals->run($resource->value, fn(): ?AccessToken => $this->renew($resource, $server, $token));
+    }
+
+    /**
+     * The scopes the token held for an MCP server was granted, empty when the client holds none.
+     */
+    public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
+    {
+        $server = $this->servers[$resource->value] ?? null;
+        $token = null === $server ? null : $this->tokens->read($resource->value, $server->issuer);
+
+        return new ScopeSet(null === $token ? [] : $token->scopes);
+    }
+
+    /**
+     * Drops the token held for an MCP server, so the next request authorizes again.
+     */
+    public function discard(ResourceIdentifier $resource): void
+    {
+        $server = $this->servers[$resource->value] ?? null;
+
+        if (null !== $server) {
+            $this->tokens->forget($resource->value, $server->issuer);
+        }
+    }
+
+    private function runAuthorization(
+        ResourceIdentifier $resource,
+        ?WwwAuthenticateChallenge $challenge,
+        ScopeSet $additionalScopes,
     ): AccessToken {
         $metadata = $this->discovery->discoverResource($resource, $challenge);
 
@@ -106,50 +174,6 @@ final class AuthorizationCoordinator
         ]);
 
         return $token;
-    }
-
-    /**
-     * The token already held for an MCP server, renewed when it is spent, or `null` when the client has
-     * none it can still use.
-     */
-    public function fetchToken(ResourceIdentifier $resource): ?AccessToken
-    {
-        $server = $this->servers[$resource->value] ?? null;
-
-        if (null === $server) {
-            return null;
-        }
-
-        $token = $this->tokens->read($resource->value, $server->issuer);
-
-        if (null === $token || ! self::hasExpired($token)) {
-            return $token;
-        }
-
-        return $this->renew($resource, $server, $token);
-    }
-
-    /**
-     * The scopes the token held for an MCP server was granted, empty when the client holds none.
-     */
-    public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
-    {
-        $server = $this->servers[$resource->value] ?? null;
-        $token = null === $server ? null : $this->tokens->read($resource->value, $server->issuer);
-
-        return new ScopeSet(null === $token ? [] : $token->scopes);
-    }
-
-    /**
-     * Drops the token held for an MCP server, so the next request authorizes again.
-     */
-    public function discard(ResourceIdentifier $resource): void
-    {
-        $server = $this->servers[$resource->value] ?? null;
-
-        if (null !== $server) {
-            $this->tokens->forget($resource->value, $server->issuer);
-        }
     }
 
     private function renew(ResourceIdentifier $resource, AuthorizationServerMetadata $server, AccessToken $token): ?AccessToken
@@ -210,6 +234,22 @@ final class AuthorizationCoordinator
         }
 
         return $scopes;
+    }
+
+    /**
+     * Two callers share one grant only when they would ask the resource owner for the same thing. A joiner
+     * whose demands the running flow does not cover would otherwise be handed a token that cannot serve it.
+     */
+    private static function buildGrantKey(
+        ResourceIdentifier $resource,
+        ?WwwAuthenticateChallenge $challenge,
+        ScopeSet $additionalScopes,
+    ): string {
+        return implode("\n", [
+            $resource->value,
+            $challenge?->readParameter('scope') ?? '',
+            implode(' ', $additionalScopes->values),
+        ]);
     }
 
     private static function hasExpired(AccessToken $token): bool
