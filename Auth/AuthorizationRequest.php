@@ -62,6 +62,12 @@ final class AuthorizationRequest
             $parameters['scope'] = $scope;
         }
 
+        // An authorization server that can answer from a prior grant usually will, and a silent answer
+        // carries no refresh token however loudly `offline_access` was asked for.
+        if ($scopes->contains(ScopeSet::OFFLINE_ACCESS)) {
+            $parameters['prompt'] = 'consent';
+        }
+
         return new AuthorizationRedirect(
             self::appendQuery($endpoint, $parameters),
             $state,

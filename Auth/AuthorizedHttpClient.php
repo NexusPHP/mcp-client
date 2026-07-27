@@ -13,7 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
-use Amp\ByteStream\BufferException;
+use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
@@ -100,6 +100,16 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     return $response;
                 }
 
+                $challenged = ScopeSet::parse($challenge->readParameter('scope'));
+
+                // The caller asked to be told rather than asked, so neither the retry budget nor whether
+                // another round would help has any bearing on what happens next.
+                if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
+                    self::drain($response);
+
+                    throw new InsufficientScopeException($challenged->values);
+                }
+
                 if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
                     $this->logger->warning('Giving up on {resource} after {attempts} scope upgrades.', [
                         'resource' => $this->resource->value,
@@ -109,26 +119,20 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     return $response;
                 }
 
-                $challenged = ScopeSet::parse($challenge->readParameter('scope'));
-
                 // Granting again would produce the same token and the same answer, so the only thing another
                 // round buys is a second consent screen.
                 if ($this->coordinator->readGrantedScopes($this->resource)->containsAll($challenged)) {
-                    $this->logger->warning('The scope challenge from {resource} asks for nothing the token lacks.', [
+                    $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
+                        'scopes' => $challenged->toParameter() ?? 'no scope at all',
                     ]);
 
                     return $response;
                 }
 
-                if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
-                    self::drain($response);
-
-                    throw new InsufficientScopeException($challenged->values);
-                }
-
                 ++$scopeUpgrades;
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
+                self::drain($response);
             } else {
                 // A second challenge to a token just obtained is the server's answer, not a stale token.
                 if ($reauthorized) {
@@ -137,12 +141,12 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
                 $reauthorized = true;
 
-                // The rejected token's scopes ride along into the new grant, so recovering from a revoked
-                // or lapsed token never silently narrows what the client may do.
-                $additionalScopes = $additionalScopes->mergeWith($this->coordinator->discardCredentials($this->resource));
+                // Draining first closes the window in which another fiber could finish its own recovery
+                // and release the shared flow before this one reaches it.
+                self::drain($response);
+                $this->coordinator->discardCredentials($this->resource);
             }
 
-            self::drain($response);
             $this->coordinator->authorize($this->resource, $challenge, $additionalScopes);
         }
     }
@@ -155,8 +159,9 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     {
         try {
             $response->getBody()->buffer(limit: self::MAX_CHALLENGE_BODY_BYTES);
-        } catch (BufferException) {
-            // A challenge body this large is not worth holding the connection open for.
+        } catch (StreamException) {
+            // Losing the body of a challenge is never a reason to abandon the recovery it asked for. This
+            // covers the oversized case and a connection that dies partway through it alike.
         }
     }
 

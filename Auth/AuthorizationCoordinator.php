@@ -17,6 +17,7 @@ use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
+use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -36,14 +37,20 @@ final class AuthorizationCoordinator
      */
     private const int EXPIRY_LEEWAY_SECONDS = 30;
 
-    private const string OFFLINE_ACCESS_SCOPE = 'offline_access';
-
     /**
      * What discovery last found for each resource, so a step-up does not repeat it.
      *
      * @var array<string, DiscoveredResource>
      */
     private array $discovered = [];
+
+    /**
+     * The scopes each resource has granted, kept apart from the token so dropping a spent or rejected one
+     * does not narrow what the next grant asks for.
+     *
+     * @var array<string, ScopeSet>
+     */
+    private array $granted = [];
 
     /**
      * @var SharedFlow<AccessToken>
@@ -102,32 +109,26 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * The scopes the token held for an MCP server was granted, empty when the client holds none.
+     * Everything an MCP server has granted this client, whether or not a token still holds it.
      */
     public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
     {
+        $granted = $this->granted[$resource->value] ?? new ScopeSet();
         $token = $this->tokens->read($resource->value);
 
-        return new ScopeSet(null === $token ? [] : $token->scopes);
+        return null === $token ? $granted : $granted->mergeWith(new ScopeSet($token->scopes));
     }
 
     /**
-     * Drops what is held for an MCP server that rejected its token, reporting the scopes that token
-     * carried. Discovery goes with it, so the next authorization can follow the resource to a different
-     * authorization server.
+     * Drops what is held for an MCP server that rejected its token. Discovery goes with it, so the next
+     * authorization can follow the resource to a different authorization server. What the server had
+     * granted is remembered, so re-authorizing asks for it again rather than narrowing.
      */
-    public function discardCredentials(ResourceIdentifier $resource): ScopeSet
+    public function discardCredentials(ResourceIdentifier $resource): void
     {
+        $this->granted[$resource->value] = $this->readGrantedScopes($resource);
         unset($this->discovered[$resource->value]);
-        $token = $this->tokens->read($resource->value);
-
-        if (null === $token) {
-            return new ScopeSet();
-        }
-
         $this->tokens->forget($resource->value);
-
-        return new ScopeSet($token->scopes);
     }
 
     private function runAuthorization(
@@ -159,7 +160,7 @@ final class AuthorizationCoordinator
             $this->options->redirectUri,
             $resource,
         );
-        $this->tokens->write($resource->value, $token);
+        $this->rememberGrant($resource, $token);
 
         $this->logger->info('Authorized {resource} at {issuer}.', [
             'resource' => $resource->value,
@@ -195,20 +196,32 @@ final class AuthorizationCoordinator
     private function renew(ResourceIdentifier $resource, AccessToken $token): ?AccessToken
     {
         if (null === $token->refreshToken) {
-            $this->tokens->forget($resource->value);
+            $this->discardCredentials($resource);
 
             return null;
         }
 
-        $server = $this->discover($resource, null)->server;
+        try {
+            $server = $this->discover($resource, null)->server;
+        } catch (McpExceptionInterface $e) {
+            // Reaching no metadata says nothing about the token. Answering `null` sends the request bare,
+            // and the challenge it draws is what re-authorization needs anyway.
+            $this->logger->info('Renewing the token for {resource} found no metadata to renew it against. {reason}', [
+                'resource' => $resource->value,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
 
         // A token minted by a server the resource has since moved off cannot be renewed at the new one, and
-        // must not be presented to it either.
+        // must not be presented to it either. Its scopes go with it: they were granted elsewhere.
         if ($server->issuer !== $token->issuer) {
             $this->logger->info('The token for {resource} was issued by {issuer}, which no longer serves it.', [
                 'resource' => $resource->value,
                 'issuer' => $token->issuer,
             ]);
+            unset($this->granted[$resource->value], $this->discovered[$resource->value]);
             $this->tokens->forget($resource->value);
 
             return null;
@@ -226,14 +239,23 @@ final class AuthorizationCoordinator
                 'resource' => $resource->value,
                 'reason' => $e->getMessage(),
             ]);
-            $this->tokens->forget($resource->value);
+            $this->discardCredentials($resource);
 
             return null;
         }
 
-        $this->tokens->write($resource->value, $renewed);
+        $this->rememberGrant($resource, $renewed);
 
         return $renewed;
+    }
+
+    /**
+     * Records what a token was granted, then stores it.
+     */
+    private function rememberGrant(ResourceIdentifier $resource, AccessToken $token): void
+    {
+        $this->granted[$resource->value] = $this->readGrantedScopes($resource)->mergeWith(new ScopeSet($token->scopes));
+        $this->tokens->write($resource->value, $token);
     }
 
     private function selectScopes(
@@ -248,10 +270,13 @@ final class AuthorizationCoordinator
             ->mergeWith($this->readGrantedScopes($resource))
         ;
 
+        // Whether to hold a refresh token is the client's call alone, so the scope that asks for one is
+        // decided here rather than inherited from a resource, a challenge, or an earlier grant.
         $offered = $discovered->server->scopesSupported ?? new ScopeSet();
+        $scopes = $scopes->without(ScopeSet::OFFLINE_ACCESS);
 
-        if ($this->options->requestOfflineAccess && $offered->contains(self::OFFLINE_ACCESS_SCOPE)) {
-            $scopes = $scopes->mergeWith(new ScopeSet([self::OFFLINE_ACCESS_SCOPE]));
+        if ($this->options->requestOfflineAccess && $offered->contains(ScopeSet::OFFLINE_ACCESS)) {
+            $scopes = $scopes->mergeWith(new ScopeSet([ScopeSet::OFFLINE_ACCESS]));
         }
 
         return $scopes;
@@ -264,10 +289,12 @@ final class AuthorizationCoordinator
      */
     private function selectBaseline(?WwwAuthenticateChallenge $challenge, ?ScopeSet $advertised): ScopeSet
     {
-        $challenged = $challenge?->readParameter('scope');
+        // A challenge that carries `scope=""` names nothing, so it steers no better than one that carries
+        // no `scope` at all.
+        $challenged = ScopeSet::parse($challenge?->readParameter('scope'));
 
         return match (true) {
-            null !== $challenged => ScopeSet::parse($challenged),
+            [] !== $challenged->values => $challenged,
             [] !== $this->options->defaultScopes => new ScopeSet($this->options->defaultScopes),
             default => $advertised ?? new ScopeSet(),
         };
