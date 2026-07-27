@@ -18,6 +18,7 @@ use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
+use Nexus\Mcp\Client\Exception\InsufficientScopeException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
@@ -45,7 +46,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     private readonly ResourceIdentifier $resource;
     private readonly DelegateHttpClient $client;
     private readonly AuthorizationCoordinator $coordinator;
-    private readonly int $maxScopeUpgrades;
 
     /**
      * @param string                            $resource      Absolute URL of the MCP endpoint this client talks to
@@ -56,7 +56,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
      */
     public function __construct(
         string $resource,
-        AuthorizationOptions $options,
+        private readonly AuthorizationOptions $options,
         UserAuthorizationInterface $userAuthorization,
         DelegateHttpClient $client,
         ?TokenStoreInterface $tokens = null,
@@ -66,14 +66,13 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     ) {
         $this->resource = new ResourceIdentifier($resource);
         $this->client = $client;
-        $this->maxScopeUpgrades = $options->maxScopeUpgrades;
         $this->coordinator = new AuthorizationCoordinator(
             new MetadataDiscovery($this->client, $timeout),
             new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $timeout),
             new TokenEndpoint($this->client, $timeout),
             $userAuthorization,
             $tokens ?? new InMemoryTokenStore(),
-            $options,
+            $this->options,
             $this->logger,
         );
     }
@@ -101,7 +100,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     return $response;
                 }
 
-                if ($scopeUpgrades >= $this->maxScopeUpgrades) {
+                if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
                     $this->logger->warning('Giving up on {resource} after {attempts} scope upgrades.', [
                         'resource' => $this->resource->value,
                         'attempts' => $scopeUpgrades,
@@ -120,6 +119,12 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     ]);
 
                     return $response;
+                }
+
+                if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
+                    self::drain($response);
+
+                    throw new InsufficientScopeException($challenged->values);
                 }
 
                 ++$scopeUpgrades;
