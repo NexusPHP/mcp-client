@@ -81,6 +81,14 @@ final readonly class ClientRegistrar
         return $registration;
     }
 
+    /**
+     * Drops the registration held for an authorization server, so the next resolution registers again.
+     */
+    public function forget(string $issuer): void
+    {
+        $this->store->forget($issuer);
+    }
+
     private function register(
         AuthorizationServerMetadata $metadata,
         AuthorizationOptions $options,

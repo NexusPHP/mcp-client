@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Sync\LocalSemaphore;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
+use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
@@ -181,14 +182,23 @@ final class AuthorizationCoordinator
 
         $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect));
 
-        $token = $this->tokenEndpoint->exchangeCode(
-            $server,
-            $registration,
-            $redirect,
-            $code,
-            $this->options->redirectUri,
-            $this->resource,
-        );
+        try {
+            $token = $this->tokenEndpoint->exchangeCode(
+                $server,
+                $registration,
+                $redirect,
+                $code,
+                $this->options->redirectUri,
+                $this->resource,
+            );
+        } catch (ClientRegistrationRejectedException $e) {
+            // The authorization code is bound to the identifier that is spent, so this grant cannot be
+            // salvaged. Dropping the registration is what stops the next one from presenting it again.
+            $this->registrar->forget($server->issuer);
+
+            throw $e;
+        }
+
         $this->rememberGrant($token);
 
         $this->logger->info('Authorized {resource} at {issuer}.', [
@@ -264,8 +274,12 @@ final class AuthorizationCoordinator
                 $token,
                 $this->resource,
             );
-        } catch (AuthorizationGrantRejectedException|MalformedAuthorizationResponseException $e) {
-            $this->logger->info('The refresh token for {resource} could not be redeemed, so a new authorization is needed. {reason}', [
+        } catch (AuthorizationGrantRejectedException|ClientRegistrationRejectedException|MalformedAuthorizationResponseException $e) {
+            if ($e instanceof ClientRegistrationRejectedException) {
+                $this->registrar->forget($server->issuer);
+            }
+
+            $this->logger->info('The token for {resource} could not be renewed, so a new authorization is needed. {reason}', [
                 'resource' => $this->resource->value,
                 'reason' => $e->getMessage(),
             ]);

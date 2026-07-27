@@ -17,6 +17,7 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
+use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
@@ -42,6 +43,11 @@ final readonly class TokenEndpoint
      * client, configuration, or server fault that granting again would not clear.
      */
     private const array GRANT_REJECTIONS = ['invalid_grant', 'invalid_scope'];
+
+    /**
+     * The RFC 6749 error code that means the client identifier presented is not one the server knows.
+     */
+    private const string CLIENT_REJECTION = 'invalid_client';
 
     private JsonHttpExchange $exchange;
 
@@ -129,9 +135,11 @@ final readonly class TokenEndpoint
             $error = MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_request';
             $description = MetadataReader::readString($data, 'error_description', self::LABEL);
 
-            throw \in_array($error, self::GRANT_REJECTIONS, true)
-                ? new AuthorizationGrantRejectedException($error, $description)
-                : new TokenRequestFailedException($error, $description);
+            throw match (true) {
+                self::CLIENT_REJECTION === $error => new ClientRegistrationRejectedException($description),
+                \in_array($error, self::GRANT_REJECTIONS, true) => new AuthorizationGrantRejectedException($error, $description),
+                default => new TokenRequestFailedException($error, $description),
+            };
         }
 
         return self::readToken($data, $metadata->issuer, $requestedScopes, $priorRefreshToken);

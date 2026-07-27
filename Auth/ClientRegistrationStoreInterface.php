@@ -27,4 +27,10 @@ interface ClientRegistrationStoreInterface
     public function read(string $issuer): ?ClientRegistration;
 
     public function write(string $issuer, ClientRegistration $registration): void;
+
+    /**
+     * Drops a registration the authorization server no longer recognises, so the next resolution registers
+     * again rather than presenting an identifier that is spent.
+     */
+    public function forget(string $issuer): void;
 }

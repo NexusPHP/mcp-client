@@ -35,4 +35,10 @@ final class InMemoryClientRegistrationStore implements ClientRegistrationStoreIn
     {
         $this->registrations[$issuer] = $registration;
     }
+
+    #[\Override]
+    public function forget(string $issuer): void
+    {
+        unset($this->registrations[$issuer]);
+    }
 }
