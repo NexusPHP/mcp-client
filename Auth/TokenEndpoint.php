@@ -17,6 +17,7 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Amp\NullCancellation;
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
@@ -37,6 +38,12 @@ final readonly class TokenEndpoint
 {
     private const string LABEL = 'Token response';
     private const int MAX_RESPONSE_BYTES = 65536;
+
+    /**
+     * RFC 6749 error codes that mean the grant presented cannot produce a token. Every other code is a
+     * client, configuration, or server fault that granting again would not clear.
+     */
+    private const array GRANT_REJECTIONS = ['invalid_grant', 'invalid_scope'];
 
     public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
     {
@@ -124,10 +131,12 @@ final readonly class TokenEndpoint
         Assert::that($data)->isMap('The token endpoint answered with a payload that is not a JSON object.');
 
         if ($response->getStatus() >= 400) {
-            throw new TokenRequestFailedException(
-                MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_request',
-                MetadataReader::readString($data, 'error_description', self::LABEL),
-            );
+            $error = MetadataReader::readString($data, 'error', self::LABEL) ?? 'invalid_request';
+            $description = MetadataReader::readString($data, 'error_description', self::LABEL);
+
+            throw \in_array($error, self::GRANT_REJECTIONS, true)
+                ? new AuthorizationGrantRejectedException($error, $description)
+                : new TokenRequestFailedException($error, $description);
         }
 
         return self::readToken($data, $requestedScopes, $priorRefreshToken);

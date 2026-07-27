@@ -13,7 +13,7 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
-use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
+use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
@@ -167,7 +167,7 @@ final class AuthorizationCoordinator
                 $token,
                 $resource,
             );
-        } catch (TokenRequestFailedException $e) {
+        } catch (AuthorizationGrantRejectedException $e) {
             $this->logger->info('The refresh token for {resource} was refused, so a new authorization is needed. {reason}', [
                 'resource' => $resource->value,
                 'reason' => $e->getMessage(),
