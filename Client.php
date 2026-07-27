@@ -22,6 +22,7 @@ use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
+use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Exception\RequestTimeoutException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
@@ -29,6 +30,7 @@ use Nexus\Mcp\Core\Http\ParameterHeaders;
 use Nexus\Mcp\Core\Http\ParameterHeaderScanner;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
+use Nexus\Mcp\Core\Schema\Enum\ProtocolErrorCode;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
@@ -379,6 +381,75 @@ final class Client
      */
     public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult|InputRequiredResult
     {
+        try {
+            return $this->attemptToolCall($name, $arguments, $onProgress);
+        } catch (RemoteCallFailedException $e) {
+            if ($e->getCode() !== ProtocolErrorCode::HeaderMismatch->value) {
+                throw $e;
+            }
+        }
+
+        // A header mismatch means the cached `inputSchema` is behind the server's, so refresh it and
+        // retry exactly once. A second mismatch is the server's answer and propagates.
+        $this->refreshToolHeaderBindings($name);
+
+        return $this->attemptToolCall($name, $arguments, $onProgress);
+    }
+
+    /**
+     * Sends an outbound JSON-RPC request and awaits the correlated response.
+     *
+     * @template TResponse of JsonRpcResultResponse = JsonRpcResultResponse
+     *
+     * @param JsonRpcRequest<non-empty-string> $request
+     * @param class-string<TResponse>          $response
+     * @param ?float                           $timeout  Seconds this one request may go unanswered, overriding the client's default
+     *
+     * @return TResponse
+     *
+     * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
+     * @throws ServerCapabilityNotSupportedException
+     * @throws TransportAlreadyClosedException
+     */
+    public function sendRequest(
+        JsonRpcRequest $request,
+        string $response,
+        ?SendContext $context = null,
+        ?float $timeout = null,
+    ): JsonRpcResultResponse {
+        return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
+    }
+
+    /**
+     * Re-lists the named tool so its cached `x-mcp-header` bindings match the server's current
+     * `inputSchema`, walking pages until the listing yields it or runs out of them.
+     */
+    private function refreshToolHeaderBindings(string $name): void
+    {
+        $cursor = null;
+
+        do {
+            $page = $this->listTools($cursor);
+
+            foreach ($page->tools as $tool) {
+                if ($tool->name === $name) {
+                    return;
+                }
+            }
+
+            $cursor = $page->nextCursor;
+        } while (null !== $cursor);
+    }
+
+    /**
+     * One `tools/call` attempt, mirroring whatever parameter headers are cached for the tool.
+     *
+     * @param null|array<string, mixed>                                             $arguments
+     * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
+     */
+    private function attemptToolCall(string $name, ?array $arguments, ?\Closure $onProgress): CallToolResult|InputRequiredResult
+    {
         $context = new SendContext(headers: $this->mirrorParameterHeaders($name, $arguments));
 
         if (null === $onProgress) {
@@ -425,31 +496,6 @@ final class Client
             $deadline?->release();
             $this->progressListeners->unregister($progressToken);
         }
-    }
-
-    /**
-     * Sends an outbound JSON-RPC request and awaits the correlated response.
-     *
-     * @template TResponse of JsonRpcResultResponse = JsonRpcResultResponse
-     *
-     * @param JsonRpcRequest<non-empty-string> $request
-     * @param class-string<TResponse>          $response
-     * @param ?float                           $timeout  Seconds this one request may go unanswered, overriding the client's default
-     *
-     * @return TResponse
-     *
-     * @throws ClientNotConnectedException
-     * @throws RequestTimeoutException
-     * @throws ServerCapabilityNotSupportedException
-     * @throws TransportAlreadyClosedException
-     */
-    public function sendRequest(
-        JsonRpcRequest $request,
-        string $response,
-        ?SendContext $context = null,
-        ?float $timeout = null,
-    ): JsonRpcResultResponse {
-        return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
     }
 
     /**
