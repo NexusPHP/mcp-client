@@ -119,6 +119,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 }
 
                 $reauthorized = true;
+
+                // The rejected token's scopes ride along into the new grant, so recovering from a revoked
+                // or lapsed token never silently narrows what the client may do.
+                $additionalScopes = $additionalScopes->mergeWith($this->coordinator->readGrantedScopes($this->resource));
                 $this->coordinator->discard($this->resource);
             }
 

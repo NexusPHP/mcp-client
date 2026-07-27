@@ -130,6 +130,17 @@ final class AuthorizationCoordinator
     }
 
     /**
+     * The scopes the token held for an MCP server was granted, empty when the client holds none.
+     */
+    public function readGrantedScopes(ResourceIdentifier $resource): ScopeSet
+    {
+        $server = $this->servers[$resource->value] ?? null;
+        $token = null === $server ? null : $this->tokens->read($resource->value, $server->issuer);
+
+        return new ScopeSet(null === $token ? [] : $token->scopes);
+    }
+
+    /**
      * Drops the token held for an MCP server, so the next request authorizes again.
      */
     public function discard(ResourceIdentifier $resource): void
