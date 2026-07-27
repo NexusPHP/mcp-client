@@ -15,6 +15,7 @@
         "amphp/byte-stream": "^2.1",
         "amphp/http-client": "^5.0",
         "amphp/process": "^2.0",
+        "amphp/sync": "^2.3",
         "nexusphp/assert": "^1.0",
         "nexusphp/mcp-core": "self.version",
         "psr/log": "^3.0",

@@ -65,6 +65,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $this->resource = new ResourceIdentifier($resource);
         $this->client = $client;
         $this->coordinator = new AuthorizationCoordinator(
+            $this->resource,
             new MetadataDiscovery($this->client, $this->options->timeout),
             new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $this->options->timeout),
             new TokenEndpoint($this->client, $this->options->timeout),
@@ -83,7 +84,8 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $reauthorized = false;
 
         while (true) {
-            $response = $this->client->request($this->authorizeRequest($request), $cancellation);
+            $token = $this->coordinator->fetchToken();
+            $response = $this->client->request(self::authorizeRequest($request, $token), $cancellation);
             $status = $response->getStatus();
 
             if (HttpStatus::Unauthorized->value !== $status && HttpStatus::Forbidden->value !== $status) {
@@ -119,7 +121,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
                 // Granting again would produce the same token and the same answer, so the only thing another
                 // round buys is a second consent screen.
-                if ($this->coordinator->readGrantedScopes($this->resource)->containsAll($challenged)) {
+                if ($this->coordinator->readGrantedScopes()->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
                         'scopes' => $challenged->toParameter() ?? 'no scope at all',
@@ -131,6 +133,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 ++$scopeUpgrades;
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
                 self::drain($response);
+                $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge);
             } else {
                 // A second challenge to a token just obtained is the server's answer, not a stale token.
                 if ($reauthorized) {
@@ -138,14 +141,9 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 }
 
                 $reauthorized = true;
-
-                // Draining first closes the window in which another fiber could finish its own recovery
-                // and release the shared flow before this one reaches it.
                 self::drain($response);
-                $this->coordinator->discardCredentials($this->resource);
+                $this->coordinator->reauthorize($token, $challenge);
             }
-
-            $this->coordinator->authorize($this->resource, $challenge, $additionalScopes);
         }
     }
 
@@ -163,11 +161,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         }
     }
 
-    private function authorizeRequest(Request $request): Request
+    private static function authorizeRequest(Request $request, ?AccessToken $token): Request
     {
         // The request is cloned per attempt so a retry never carries the header a spent token set.
         $attempt = clone $request;
-        $token = $this->coordinator->fetchToken($this->resource);
 
         if (null !== $token) {
             $attempt->setHeader('Authorization', \sprintf('%s %s', WwwAuthenticateChallenge::BEARER_SCHEME, $token->value));
