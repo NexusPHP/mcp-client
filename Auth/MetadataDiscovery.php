@@ -83,7 +83,7 @@ final readonly class MetadataDiscovery
 
             $metadata = self::readResource($data);
 
-            if ($metadata->resource->value !== $resource->value) {
+            if (! self::describesResource($metadata->resource->value, $resource->value)) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
                     'the document served for "%s" names the resource "%s".',
                     $resource->value,
@@ -131,6 +131,19 @@ final readonly class MetadataDiscovery
         }
 
         throw new AuthorizationDiscoveryFailedException('authorization server metadata', $issuer, $candidates);
+    }
+
+    /**
+     * Whether a document naming `$named` may be trusted to describe `$resource`.
+     *
+     * The candidate list includes the origin-root well-known URL, and RFC 9728 assigns that URL to the
+     * resource at the origin, so the document it serves names the origin rather than the path-scoped
+     * endpoint. Accepting it is what makes that fallback reachable. A document naming any other origin
+     * belongs to a resource server this one does not own and is refused.
+     */
+    private static function describesResource(string $named, string $resource): bool
+    {
+        return $named === $resource || WellKnownUri::originOf($resource) === $named;
     }
 
     /**

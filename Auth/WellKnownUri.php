@@ -74,6 +74,15 @@ final class WellKnownUri
     }
 
     /**
+     * The resource identifier the origin-root well-known URL describes: the scheme, host and port of
+     * the given URI, without its path or query.
+     */
+    public static function originOf(string $uri): string
+    {
+        return self::splitOrigin($uri)[0];
+    }
+
+    /**
      * @return array{string, string, string} The origin, the path and the query, each empty when the URI
      *                                       carries none. A resource identifier keeps its query, so the
      *                                       document that describes it is asked for under the same one.
