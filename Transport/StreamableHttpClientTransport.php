@@ -128,16 +128,15 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
             return;
         }
 
-        $envelope = $message->toArray();
         $headers = $context->headers ?? [];
 
         // Only a request has a caller awaiting a response, so only a request names one to fail.
         $requestId = $message instanceof JsonRpcRequest ? $message->id : null;
 
         // The POST runs detached so a caller awaiting the correlated response is not the thing driving it.
-        $this->exchanges->track(async(function () use ($envelope, $headers, $lifetime, $requestId): void {
+        $this->exchanges->track(async(function () use ($message, $headers, $lifetime, $requestId): void {
             try {
-                $this->exchange($envelope, $headers, $lifetime);
+                $this->exchange($message, $headers, $lifetime);
             } catch (CancelledException) {
                 // The transport closed while this exchange was in flight. Shutdown is not a fault, and the
                 // protocol layer already learns of it from the close signal.
@@ -195,14 +194,13 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     }
 
     /**
-     * POSTs one envelope and emits whatever the server answers with.
+     * POSTs one message and emits whatever the server answers with.
      *
-     * @param array<string, mixed>            $envelope
-     * @param array<non-empty-string, string> $headers  Mirrored parameter headers the protocol layer computed
+     * @param array<non-empty-string, string> $headers Mirrored parameter headers the protocol layer computed
      */
-    private function exchange(array $envelope, array $headers, DeferredCancellation $lifetime): void
+    private function exchange(JsonRpcMessage $message, array $headers, DeferredCancellation $lifetime): void
     {
-        $response = $this->client->request($this->buildRequest($envelope, $headers), $lifetime->getCancellation());
+        $response = $this->client->request($this->buildRequest($message, $headers), $lifetime->getCancellation());
 
         if ($response->getStatus() === HttpStatus::Accepted->value) {
             // The server accepted a notification. There is no body to correlate.
@@ -225,19 +223,18 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     }
 
     /**
-     * @param array<string, mixed>            $envelope
      * @param array<non-empty-string, string> $headers
      */
-    private function buildRequest(array $envelope, array $headers): Request
+    private function buildRequest(JsonRpcMessage $message, array $headers): Request
     {
-        $request = new Request($this->endpoint, 'POST', json_encode($envelope, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
+        $request = new Request($this->endpoint, 'POST', json_encode($message, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
 
         // `setHeaders()` replaces the whole bag rather than merging, so every header goes in one call.
         $request->setHeaders([
             'Content-Type' => 'application/json',
             'Accept' => self::ACCEPT,
             ...$headers,
-            ...StandardHeaders::build($envelope),
+            ...StandardHeaders::build($message->toArray()),
         ]);
 
         // A request-scoped stream lives as long as the server keeps it open, so only a stall may end it.
