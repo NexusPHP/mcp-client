@@ -128,10 +128,7 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
             return;
         }
 
-        \assert(method_exists($message, 'toArray'));
         $envelope = $message->toArray();
-        Assert::that($envelope)->isMap(\sprintf('%s can only send a string-keyed envelope.', self::LABEL));
-
         $headers = $context->headers ?? [];
 
         // Only a request has a caller awaiting a response, so only a request names one to fail.
