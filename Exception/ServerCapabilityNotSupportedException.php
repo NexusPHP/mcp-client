@@ -16,15 +16,15 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when a request targets a capability the server did not advertise during
- * the initialize handshake.
+ * Thrown when a request targets a capability the server did not advertise in its
+ * `server/discover` result.
  */
 final class ServerCapabilityNotSupportedException extends \LogicException implements McpExceptionInterface
 {
     public function __construct(string $method)
     {
         parent::__construct(\sprintf(
-            'Request method "%s" requires a server capability that was not advertised during initialize.',
+            'Request method "%s" requires a server capability that was not advertised by server/discover.',
             $method,
         ));
     }
