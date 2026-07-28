@@ -43,8 +43,11 @@ final readonly class MetadataDiscovery
 
     private JsonHttpExchange $exchange;
 
-    public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
-    {
+    public function __construct(
+        DelegateHttpClient $client,
+        float $timeout = 10.0,
+        private bool $allowInsecureLoopback = false,
+    ) {
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
@@ -102,7 +105,7 @@ final readonly class MetadataDiscovery
     {
         // Every candidate inherits the issuer's scheme and authority, so holding the issuer to HTTPS holds
         // all of them, and it does so before an unusable one reaches the URL builder.
-        SecureEndpoint::verifyAuthorizationServerUrl($issuer, 'authorization server issuer');
+        SecureEndpoint::verifyAuthorizationServerUrl($issuer, 'authorization server issuer', $this->allowInsecureLoopback);
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {

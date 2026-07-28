@@ -46,19 +46,22 @@ final class SecureEndpoint
     }
 
     /**
-     * Verifies a URL an authorization server publishes for itself, which the spec holds to HTTPS with no
-     * exemption. This checks the transport the URL names, not where it leads: a private-network or
-     * link-local destination reached over HTTPS is admitted.
+     * Verifies a URL an authorization server publishes for itself, which the spec holds to HTTPS. This
+     * checks the transport the URL names, not where it leads: a private-network or link-local destination
+     * reached over HTTPS is admitted.
      *
      * A fragment is refused alongside cleartext because this client appends `state` and `code_challenge` to
      * the authorization endpoint as query parameters, which a fragment would swallow before the server saw
      * them.
+     *
+     * @param bool $allowLoopback Admits cleartext on a loopback host, which the spec does not exempt. Off
+     *                            unless the caller opted in through `AuthorizationOptions`.
      */
-    public static function verifyAuthorizationServerUrl(string $url, string $label): void
+    public static function verifyAuthorizationServerUrl(string $url, string $label, bool $allowLoopback = false): void
     {
         $parts = self::parse($url);
 
-        if (null === $parts || 'https' !== $parts['scheme']) {
+        if (null === $parts || ! self::isSecureScheme($parts, $allowLoopback)) {
             throw new UntrustedAuthorizationMetadataException(\sprintf(
                 'the %s "%s" is not an absolute HTTPS URL.',
                 $label,
@@ -116,6 +119,18 @@ final class SecureEndpoint
             'path' => $parts['path'] ?? '',
             'fragment' => $parts['fragment'] ?? '',
         ];
+    }
+
+    /**
+     * @param array{scheme: string, host: string, path: string, fragment: string} $parts
+     */
+    private static function isSecureScheme(array $parts, bool $allowLoopback): bool
+    {
+        if ('https' === $parts['scheme']) {
+            return true;
+        }
+
+        return $allowLoopback && 'http' === $parts['scheme'] && self::isLoopback($parts['host']);
     }
 
     private static function isLoopback(string $host): bool

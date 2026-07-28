@@ -31,6 +31,7 @@ final readonly class AuthorizationOptions
      * @param list<non-empty-string>  $defaultScopes               Scopes to ask for when no challenge names any, in place of everything the resource advertises
      * @param InsufficientScopePolicy $onInsufficientScope         Whether an insufficient-scope answer steps the scopes up or is reported to the caller
      * @param float                   $timeout                     Seconds a single authorization round trip may take
+     * @param bool                    $allowInsecureLoopback       Admits an authorization server reached over cleartext HTTP on a loopback host, which the spec does not exempt. For local development and conformance runs, never production
      */
     public function __construct(
         public string $clientName,
@@ -43,6 +44,7 @@ final readonly class AuthorizationOptions
         public array $defaultScopes = [],
         public InsufficientScopePolicy $onInsufficientScope = InsufficientScopePolicy::Reauthorize,
         public float $timeout = 10.0,
+        public bool $allowInsecureLoopback = false,
     ) {
         SecureEndpoint::verifyRedirectUri($redirectUri);
 

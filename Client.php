@@ -62,6 +62,7 @@ use Nexus\Mcp\Core\Schema\Result\CompleteResult;
 use Nexus\Mcp\Core\Schema\Result\DiscoverResult;
 use Nexus\Mcp\Core\Schema\Result\GetPromptResult;
 use Nexus\Mcp\Core\Schema\Result\InputRequiredResult;
+use Nexus\Mcp\Core\Schema\Result\InputResponse;
 use Nexus\Mcp\Core\Schema\Result\ListPromptsResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
@@ -371,18 +372,30 @@ final class Client
      * minted into the request's `_meta` and the callback receives every
      * matching `notifications/progress` for the duration of the call.
      *
+     * A server that needs more input answers with an `InputRequiredResult` rather
+     * than a result. Satisfy each of its `inputRequests` and call again with the
+     * answers plus the `requestState` it carried, which is opaque and must be
+     * echoed back unchanged.
+     *
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
+     * @param null|array<string, InputResponse>                                     $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|string                                                           $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function callTool(string $name, ?array $arguments = null, ?\Closure $onProgress = null): CallToolResult|InputRequiredResult
-    {
+    public function callTool(
+        string $name,
+        ?array $arguments = null,
+        ?\Closure $onProgress = null,
+        ?array $inputResponses = null,
+        ?string $requestState = null,
+    ): CallToolResult|InputRequiredResult {
         try {
-            return $this->attemptToolCall($name, $arguments, $onProgress);
+            return $this->attemptToolCall($name, $arguments, $onProgress, $inputResponses, $requestState);
         } catch (RemoteCallFailedException $e) {
             if ($e->getCode() !== ProtocolErrorCode::HeaderMismatch->value) {
                 throw $e;
@@ -393,7 +406,7 @@ final class Client
         // retry exactly once. A second mismatch is the server's answer and propagates.
         $this->refreshToolHeaderBindings($name);
 
-        return $this->attemptToolCall($name, $arguments, $onProgress);
+        return $this->attemptToolCall($name, $arguments, $onProgress, $inputResponses, $requestState);
     }
 
     /**
@@ -447,16 +460,28 @@ final class Client
      *
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
+     * @param null|array<string, InputResponse>                                     $inputResponses
      */
-    private function attemptToolCall(string $name, ?array $arguments, ?\Closure $onProgress): CallToolResult|InputRequiredResult
-    {
+    private function attemptToolCall(
+        string $name,
+        ?array $arguments,
+        ?\Closure $onProgress,
+        ?array $inputResponses = null,
+        ?string $requestState = null,
+    ): CallToolResult|InputRequiredResult {
         $context = new SendContext(headers: $this->mirrorParameterHeaders($name, $arguments));
 
         if (null === $onProgress) {
             return $this->sendRequest(
                 new CallToolRequest(
                     id: $this->mintRequestId(),
-                    params: new CallToolRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
+                    params: new CallToolRequestParams(
+                        name: $name,
+                        meta: $this->stampMeta(),
+                        arguments: $arguments,
+                        inputResponses: $inputResponses,
+                        requestState: $requestState,
+                    ),
                 ),
                 CallToolResultResponse::class,
                 $context,
@@ -486,6 +511,8 @@ final class Client
                         name: $name,
                         meta: $this->stampMeta($progressToken),
                         arguments: $arguments,
+                        inputResponses: $inputResponses,
+                        requestState: $requestState,
                     ),
                 ),
                 CallToolResultResponse::class,

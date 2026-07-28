@@ -42,6 +42,7 @@ final readonly class ClientRegistrar
         DelegateHttpClient $client,
         private ClientRegistrationStoreInterface $store,
         float $timeout = 10.0,
+        private bool $allowInsecureLoopback = false,
     ) {
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
@@ -100,7 +101,7 @@ final readonly class ClientRegistrar
             throw new ClientRegistrationRequiredException($metadata->issuer);
         }
 
-        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'registration endpoint');
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'registration endpoint', $this->allowInsecureLoopback);
 
         $request = new Request($endpoint, 'POST', json_encode([
             'client_name' => $options->clientName,

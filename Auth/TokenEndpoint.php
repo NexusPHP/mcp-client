@@ -59,8 +59,11 @@ final readonly class TokenEndpoint
 
     private JsonHttpExchange $exchange;
 
-    public function __construct(DelegateHttpClient $client, float $timeout = 10.0)
-    {
+    public function __construct(
+        DelegateHttpClient $client,
+        float $timeout = 10.0,
+        private bool $allowInsecureLoopback = false,
+    ) {
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
@@ -117,7 +120,7 @@ final readonly class TokenEndpoint
             'The authorization server "%s" publishes no token endpoint.',
             $metadata->issuer,
         ));
-        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'token endpoint');
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'token endpoint', $this->allowInsecureLoopback);
 
         $headers = ['Content-Type' => 'application/x-www-form-urlencoded'];
 

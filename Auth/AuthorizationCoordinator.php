@@ -195,6 +195,7 @@ final class AuthorizationCoordinator
             $this->options->redirectUri,
             $this->resource,
             $scopes,
+            $this->options->allowInsecureLoopback,
         );
 
         $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect, $cancellation));

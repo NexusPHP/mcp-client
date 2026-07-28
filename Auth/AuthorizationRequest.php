@@ -35,13 +35,14 @@ final class AuthorizationRequest
         string $redirectUri,
         ResourceIdentifier $resource,
         ScopeSet $scopes,
+        bool $allowInsecureLoopback = false,
     ): AuthorizationRedirect {
         $endpoint = $metadata->authorizationEndpoint;
         Assert::that($endpoint)->not()->isNull(\sprintf(
             'The authorization server "%s" publishes no authorization endpoint.',
             $metadata->issuer,
         ));
-        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'authorization endpoint');
+        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'authorization endpoint', $allowInsecureLoopback);
 
         $pkce = PkcePair::generate();
         $state = bin2hex(random_bytes(self::STATE_BYTES));
