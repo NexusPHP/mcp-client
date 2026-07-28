@@ -19,7 +19,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  * Thrown when supplied client credentials belong to an authorization server other than the one the protected
  * resource now names.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-binding
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding
  */
 final class AuthorizationServerMismatchException extends \RuntimeException implements McpExceptionInterface
 {

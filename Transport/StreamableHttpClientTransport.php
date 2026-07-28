@@ -48,7 +48,7 @@ use function Amp\async;
  * Streamable HTTP MCP client transport. Every outbound message is its own POST to the MCP endpoint, and the
  * response, a single JSON object or a request-scoped SSE stream, is emitted back as inbound envelopes.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
  */
 final class StreamableHttpClientTransport implements ParameterHeaderMirroringInterface
 {

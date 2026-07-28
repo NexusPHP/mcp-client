@@ -30,7 +30,7 @@ use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
  *
  * @internal
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
  */
 final readonly class ClientRegistrar
 {

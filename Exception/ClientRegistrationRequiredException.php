@@ -19,7 +19,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  * Thrown when an authorization server offers no registration mechanism the client can use, so the host must
  * supply a client identifier itself.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
  */
 final class ClientRegistrationRequiredException extends \RuntimeException implements McpExceptionInterface
 {

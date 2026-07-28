@@ -19,7 +19,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  * Thrown when a response arrived from a URL other than the one the request was sent to, which an HTTP client
  * that follows redirects will do without re-checking the destination.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#communication-security
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */
 final class RedirectRefusedException extends \RuntimeException implements McpExceptionInterface
 {

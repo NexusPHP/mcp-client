@@ -23,7 +23,7 @@ use Nexus\Mcp\Core\Auth\ScopeSet;
  *
  * @internal
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-flow-steps
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#authorization-flow-steps
  */
 final class AuthorizationRequest
 {

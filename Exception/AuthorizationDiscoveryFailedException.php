@@ -18,7 +18,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 /**
  * Thrown when none of the well-known URLs a client probes serves the metadata document it needs.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/authorization-server-discovery
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery
  */
 final class AuthorizationDiscoveryFailedException extends \RuntimeException implements McpExceptionInterface
 {

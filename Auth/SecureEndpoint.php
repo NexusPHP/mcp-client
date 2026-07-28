@@ -21,7 +21,7 @@ use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
  *
  * @internal
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#communication-security
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */
 final class SecureEndpoint
 {
@@ -82,7 +82,7 @@ final class SecureEndpoint
      * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a path so
      * one host can serve more than one document.
      *
-     * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration
+     * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
      */
     public static function verifyClientIdMetadataDocumentUrl(string $url): void
     {

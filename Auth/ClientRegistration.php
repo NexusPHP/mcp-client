@@ -18,7 +18,7 @@ use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 /**
  * An OAuth client identifier bound to the authorization server that honours it.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-binding
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding
  */
 final readonly class ClientRegistration
 {

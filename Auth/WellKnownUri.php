@@ -18,7 +18,7 @@ namespace Nexus\Mcp\Client\Auth;
  *
  * @internal
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/authorization-server-discovery
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery
  */
 final class WellKnownUri
 {

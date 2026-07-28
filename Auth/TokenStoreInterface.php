@@ -18,7 +18,7 @@ namespace Nexus\Mcp\Client\Auth;
  * that minted a token travels on the token itself. Implementations are responsible for storing tokens
  * confidentially.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#token-theft
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#token-theft
  */
 interface TokenStoreInterface
 {

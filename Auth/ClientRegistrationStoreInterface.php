@@ -17,7 +17,7 @@ namespace Nexus\Mcp\Client\Auth;
  * Holds the client identifiers obtained through Dynamic Client Registration, keyed by the authorization
  * server that issued them so credentials are never carried across a server change.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-binding
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding
  */
 interface ClientRegistrationStoreInterface
 {

@@ -34,7 +34,7 @@ use Psr\Log\NullLogger;
  *
  * Hand it to `StreamableHttpClientTransport` in place of the default client.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization#access-token-usage
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#access-token-usage
  */
 final class AuthorizedHttpClient implements DelegateHttpClient
 {

@@ -19,7 +19,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  * Thrown when an authorization server does not advertise the `S256` code challenge method, which MCP clients
  * must have before they may proceed.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#authorization-code-protection
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#authorization-code-protection
  */
 final class PkceNotSupportedException extends \RuntimeException implements McpExceptionInterface
 {

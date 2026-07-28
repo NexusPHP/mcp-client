@@ -22,7 +22,7 @@ use Nexus\Mcp\Core\Auth\MetadataReader;
  *
  * @internal
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-validation
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#authorization-response-validation
  */
 final class AuthorizationResponse
 {

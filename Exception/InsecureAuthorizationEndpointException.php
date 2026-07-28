@@ -18,7 +18,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 /**
  * Thrown when an authorization endpoint would be contacted over plain HTTP from a host that is not loopback.
  *
- * @see https://modelcontextprotocol.io/specification/draft/basic/authorization/security-considerations#communication-security
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */
 final class InsecureAuthorizationEndpointException extends \RuntimeException implements McpExceptionInterface
 {
