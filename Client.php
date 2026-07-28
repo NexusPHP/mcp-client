@@ -31,6 +31,7 @@ use Nexus\Mcp\Core\Http\ParameterHeaderScanner;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Enum\ProtocolErrorCode;
+use Nexus\Mcp\Core\Schema\Error\UnsupportedProtocolVersionError;
 use Nexus\Mcp\Core\Schema\Implementation;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
@@ -50,6 +51,7 @@ use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\RequestMetaObject;
+use Nexus\Mcp\Core\Schema\RequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
@@ -544,34 +546,137 @@ final class Client
         ?RequestDeadline $deadline,
     ): JsonRpcResultResponse {
         try {
-            $transport = $this->transport ?? throw new ClientNotConnectedException();
-
-            $this->assertServerSupports($request::getMethod());
-
-            $future = $this->outboundRequests->register($request->id, $response);
-
             try {
-                $transport->send($request, $context);
-            } catch (\Throwable $e) {
-                // A failed send leaves the registration with no awaiter and no
-                // response to correlate, so free the slot before propagating.
-                $this->outboundRequests->forget($request->id);
+                return $this->exchange($request, $response, $context, $deadline);
+            } catch (RemoteCallFailedException $e) {
+                // SEP-2575: a server that rejects the requested version names the ones it accepts, and the
+                // client SHOULD retry with one of them. The retry is not itself retried.
+                $retry = $this->renegotiateProtocolVersion($request, $e);
 
-                throw $e;
-            }
+                if (null === $retry) {
+                    throw $e;
+                }
 
-            if (null === $deadline) {
-                return $future->await();
-            }
+                $this->logger->info(
+                    'Retrying request {id} as {retry}: the server does not support {requested}.',
+                    ['id' => $request->id->id, 'retry' => $retry->id->id, 'requested' => $e->error->message],
+                );
 
-            try {
-                return $future->await($deadline->getCancellation());
-            } catch (CancelledException $e) {
-                throw $this->abandon($request, $transport, $deadline, $e);
+                return $this->exchange($retry, $response, $context, $deadline);
             }
         } finally {
             $deadline?->release();
         }
+    }
+
+    /**
+     * Sends one request and awaits its correlated response.
+     *
+     * @template TResponse of JsonRpcResultResponse
+     *
+     * @param JsonRpcRequest<non-empty-string> $request
+     * @param class-string<TResponse>          $response
+     *
+     * @return TResponse
+     *
+     * @throws ClientNotConnectedException
+     * @throws RemoteCallFailedException
+     * @throws RequestTimeoutException
+     * @throws ServerCapabilityNotSupportedException
+     */
+    private function exchange(
+        JsonRpcRequest $request,
+        string $response,
+        ?SendContext $context,
+        ?RequestDeadline $deadline,
+    ): JsonRpcResultResponse {
+        $transport = $this->transport ?? throw new ClientNotConnectedException();
+
+        $this->assertServerSupports($request::getMethod());
+
+        $future = $this->outboundRequests->register($request->id, $response);
+
+        try {
+            $transport->send($request, $context);
+        } catch (\Throwable $e) {
+            // A failed send leaves the registration with no awaiter and no
+            // response to correlate, so free the slot before propagating.
+            $this->outboundRequests->forget($request->id);
+
+            throw $e;
+        }
+
+        if (null === $deadline) {
+            return $future->await();
+        }
+
+        try {
+            return $future->await($deadline->getCancellation());
+        } catch (CancelledException $e) {
+            throw $this->abandon($request, $transport, $deadline, $e);
+        }
+    }
+
+    /**
+     * Rebuilds the request under a version the rejection named as supported, or null when the failure is
+     * not a version rejection or names no version this SDK speaks.
+     *
+     * @template TMethod of non-empty-string
+     *
+     * @param JsonRpcRequest<TMethod> $request
+     *
+     * @return null|JsonRpcRequest<TMethod>
+     */
+    private function renegotiateProtocolVersion(JsonRpcRequest $request, RemoteCallFailedException $failure): ?JsonRpcRequest
+    {
+        $error = $failure->error;
+
+        if (! $error instanceof UnsupportedProtocolVersionError) {
+            return null;
+        }
+
+        $version = self::pickSupportedVersion($error->supported);
+
+        if (null === $version) {
+            return null;
+        }
+
+        $params = $request->params;
+
+        if (! $params instanceof RequestParams) {
+            // A request carrying no typed params carries no `_meta` to restamp either.
+            return null;
+        }
+
+        $meta = $params->meta->toArray();
+        $meta[RequestMetaObject::PROTOCOL_VERSION_KEY] = $version;
+
+        $fields = $params->toArray();
+        $fields['_meta'] = $meta;
+
+        $envelope = $request->toArray();
+        $envelope['params'] = $fields;
+
+        // A fresh id: the rejected one has already been answered and its slot retired.
+        $envelope['id'] = $this->mintRequestId()->id;
+
+        return $request::fromArray($envelope);
+    }
+
+    /**
+     * The first version the peer named that this SDK also speaks.
+     *
+     * @param list<string> $supported
+     */
+    private static function pickSupportedVersion(array $supported): ?string
+    {
+        foreach ($supported as $version) {
+            if (\in_array($version, ProtocolVersion::SUPPORTED_VERSIONS, true)) {
+                return $version;
+            }
+        }
+
+        return null;
     }
 
     /**
