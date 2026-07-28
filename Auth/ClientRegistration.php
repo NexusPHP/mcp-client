@@ -23,12 +23,15 @@ use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 final readonly class ClientRegistration
 {
     /**
-     * @param string $clientId The `client_id`, either pre-registered, dynamically registered, or a Client ID Metadata Document URL
-     * @param string $issuer   The authorization server this identifier belongs to
+     * @param string      $clientId The `client_id`, either pre-registered, dynamically registered, or a Client ID Metadata Document URL
+     * @param null|string $issuer   The authorization server this identifier belongs to, or null to leave it
+     *                              unbound. An unbound identifier is honoured by whichever server discovery
+     *                              names, which is what credentials issued out of band look like before the
+     *                              client knows the issuer. A bound one is refused anywhere else.
      */
     public function __construct(
         public string $clientId,
-        public string $issuer,
+        public ?string $issuer = null,
         public ?string $clientSecret = null,
         public TokenEndpointAuthMethod $tokenEndpointAuthMethod = TokenEndpointAuthMethod::None,
     ) {

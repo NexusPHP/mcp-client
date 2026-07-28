@@ -55,6 +55,17 @@ final readonly class ClientRegistrar
         $preRegistered = $options->preRegistered;
 
         if (null !== $preRegistered) {
+            if (null === $preRegistered->issuer) {
+                // Unbound credentials name no server of their own, so they take the discovered one and
+                // everything downstream sees a bound registration either way.
+                return new ClientRegistration(
+                    $preRegistered->clientId,
+                    $metadata->issuer,
+                    $preRegistered->clientSecret,
+                    self::bindAuthMethod($preRegistered),
+                );
+            }
+
             if ($preRegistered->issuer !== $metadata->issuer) {
                 throw new AuthorizationServerMismatchException($preRegistered->issuer, $metadata->issuer);
             }
@@ -131,6 +142,19 @@ final readonly class ClientRegistrar
             $secret,
             self::resolveAuthMethod($data, $secret),
         );
+    }
+
+    /**
+     * The token-endpoint authentication an unbound registration uses. A caller who left the method at its
+     * default while supplying a secret gets RFC 7591's, the same one dynamic registration assumes.
+     */
+    private static function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
+    {
+        if (TokenEndpointAuthMethod::None !== $registration->tokenEndpointAuthMethod || null === $registration->clientSecret) {
+            return $registration->tokenEndpointAuthMethod;
+        }
+
+        return TokenEndpointAuthMethod::ClientSecretBasic;
     }
 
     /**
