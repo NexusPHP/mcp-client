@@ -17,13 +17,16 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
+use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
+use Nexus\Mcp\Core\Handler\Notification\CancelledNotificationHandler;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Icon;
 use Nexus\Mcp\Core\Schema\Implementation;
+use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 use Nexus\Mcp\Core\Schema\Result;
 use Psr\Log\LoggerInterface;
@@ -197,10 +200,14 @@ final class ClientBuilder
 
         $outboundRequests = new PendingOutboundRequests();
         $progressListeners = new ProgressListenerRegistry();
+        $inboundRequests = new PendingInboundRequests();
 
         $requestHandlers = $this->requestHandlers;
 
-        $notificationHandlers = $this->notificationHandlers;
+        $notificationHandlers = [
+            CancelledNotification::getMethod() => new CancelledNotificationHandler($inboundRequests, $this->logger),
+            ...$this->notificationHandlers,
+        ];
         $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
             $progressListeners,
             // register the custom progress handler as fallback
@@ -215,6 +222,7 @@ final class ClientBuilder
                 new HandlerRegistry($notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
                 $outboundRequests,
                 logger: $this->logger,
+                inboundRequests: $inboundRequests,
             ),
             $outboundRequests,
             $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),

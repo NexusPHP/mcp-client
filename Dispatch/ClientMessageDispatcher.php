@@ -14,7 +14,6 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Dispatch;
 
 use Amp\Cancellation;
-use Amp\NullCancellation;
 use Nexus\Mcp\Client\ClientContext;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
@@ -39,6 +38,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcErrorResponse;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
+use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
@@ -58,7 +58,6 @@ use function Amp\async;
 final readonly class ClientMessageDispatcher implements MessageDispatcherInterface
 {
     private PendingCoroutines $coroutines;
-    private PendingInboundRequests $inboundRequests;
     private ResponseSender $responseSender;
 
     /**
@@ -71,10 +70,9 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         private PendingOutboundRequests $outboundRequests,
         private LoggerInterface $logger = new NullLogger(),
         private JsonRpcMessageParser $parser = new JsonRpcMessageParser(),
-        private Cancellation $cancellation = new NullCancellation(),
+        private PendingInboundRequests $inboundRequests = new PendingInboundRequests(),
     ) {
-        $this->coroutines = new PendingCoroutines();
-        $this->inboundRequests = new PendingInboundRequests();
+        $this->coroutines = new PendingCoroutines($this->logger);
         $this->responseSender = new ResponseSender($this->logger);
     }
 
@@ -82,6 +80,12 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     public function flushPending(): void
     {
         $this->coroutines->flushPending();
+    }
+
+    #[\Override]
+    public function cancelRequest(RequestId $id): void
+    {
+        $this->inboundRequests->cancel($id);
     }
 
     /**
@@ -222,14 +226,16 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     {
         $method = $request::getMethod();
 
-        if (! $this->inboundRequests->claim($request->id)) {
+        $cancellation = $this->inboundRequests->claim($request->id);
+
+        if (null === $cancellation) {
             $exception = new DuplicateInboundRequestIdException($request->id);
             $this->responseSender->send($transport, ResponseSender::buildErrorResponse($exception, $request->id), $method);
 
             return;
         }
 
-        $this->coroutines->track(async(function () use ($request, $transport, $method): void {
+        $this->coroutines->track(async(function () use ($request, $transport, $method, $cancellation): void {
             try {
                 $sender = new RequestBoundSender($transport, $request->id);
 
@@ -237,7 +243,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 // client `_meta`, so they expose no progress token to the handler.
                 $context = new ClientContext(
                     $request->id,
-                    $this->cancellation,
+                    $cancellation,
                     null,
                     $sender,
                 );
@@ -252,10 +258,19 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
                     return;
                 } catch (AbstractJsonRpcProtocolException $e) {
-                    $this->responseSender->send($transport, ResponseSender::buildErrorResponse($e, $request->id), $method);
+                    $this->sendUnlessCancelled($cancellation, $transport, ResponseSender::buildErrorResponse($e, $request->id), $method);
 
                     return;
                 } catch (\Throwable $e) {
+                    if ($cancellation->isRequested()) {
+                        $this->logger->debug(
+                            'Dropping the response to a request whose handler the cancellation interrupted.',
+                            ['method' => $method],
+                        );
+
+                        return;
+                    }
+
                     $this->logger->error(
                         'Uncaught request handler exception.',
                         ['method' => $method, 'exception' => $e],
@@ -268,11 +283,32 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                     return;
                 }
 
-                $this->responseSender->send($transport, $response, $method);
+                $this->sendUnlessCancelled($cancellation, $transport, $response, $method);
             } finally {
                 $this->inboundRequests->release($request->id);
             }
         }));
+    }
+
+    /**
+     * Sends `$response` unless the peer abandoned the request first. The spec forbids answering a request
+     * once its cancellation was requested.
+     *
+     * @param non-empty-string $method
+     */
+    private function sendUnlessCancelled(
+        Cancellation $cancellation,
+        TransportInterface $transport,
+        JsonRpcErrorResponse|JsonRpcResultResponse $response,
+        string $method,
+    ): void {
+        if ($cancellation->isRequested()) {
+            $this->logger->debug('Dropping the response to a cancelled request.', ['method' => $method]);
+
+            return;
+        }
+
+        $this->responseSender->send($transport, $response, $method);
     }
 
     /**
