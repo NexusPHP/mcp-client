@@ -116,14 +116,8 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 ['envelope' => $envelope, 'exception' => $e],
             );
 
-            // A client sends no JSON-RPC responses, so it has no reply to offer an envelope that carried an
-            // id. The server answers this case per §5. The client can only drop it.
-            if (! $isNotification) {
-                return;
-            }
-
-            $this->responseSender->send($transport, ResponseSender::buildErrorResponse($e, null), 'misrouted');
-
+            // A client sends no JSON-RPC responses, so whatever shape the envelope arrived in it has no
+            // reply to offer. The server answers this case per §5.
             return;
         } catch (AbstractJsonRpcProtocolException $e) {
             if ($isNotification) {
