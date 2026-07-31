@@ -19,6 +19,8 @@ use Nexus\Mcp\Client\Dispatch\RequestDeadline;
 use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
 use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
+use Nexus\Mcp\Client\Subscription\SubscriptionListenerRegistry;
+use Nexus\Mcp\Client\Subscription\SubscriptionStream;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
@@ -33,6 +35,7 @@ use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Enum\ProtocolErrorCode;
 use Nexus\Mcp\Core\Schema\Error\UnsupportedProtocolVersionError;
 use Nexus\Mcp\Core\Schema\Implementation;
+use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
 use Nexus\Mcp\Core\Schema\MetaObject\RequestMetaObject;
@@ -50,6 +53,7 @@ use Nexus\Mcp\Core\Schema\Request\ListResourcesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListResourceTemplatesRequest;
 use Nexus\Mcp\Core\Schema\Request\ListToolsRequest;
 use Nexus\Mcp\Core\Schema\Request\ReadResourceRequest;
+use Nexus\Mcp\Core\Schema\Request\SubscriptionsListenRequest;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\RequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
@@ -58,6 +62,7 @@ use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\SubscriptionsListenRequestParams;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
@@ -79,7 +84,9 @@ use Nexus\Mcp\Core\Schema\ResultResponse\ListResourcesResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ListResourceTemplatesResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ListToolsResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\ReadResourceResultResponse;
+use Nexus\Mcp\Core\Schema\ResultResponse\SubscriptionsListenResultResponse;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
+use Nexus\Mcp\Core\Schema\SubscriptionFilter;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\SendContext;
@@ -131,6 +138,7 @@ final class Client
         private readonly \Closure $progressTokenFactory,
         private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(version: ProtocolVersion::LATEST_VERSION),
         private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
+        private readonly SubscriptionListenerRegistry $subscriptionListeners = new SubscriptionListenerRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly ?float $requestTimeout = self::DEFAULT_REQUEST_TIMEOUT,
         private readonly ?float $maxRequestTimeout = self::DEFAULT_MAX_REQUEST_TIMEOUT,
@@ -231,6 +239,70 @@ final class Client
         $this->serverCapabilities = $result->capabilities;
 
         return $result;
+    }
+
+    /**
+     * Opens a `subscriptions/listen` stream and routes every notification the server tags with its id to
+     * `$onNotification`. Returns as soon as the request is away: the stream runs until either side ends it.
+     *
+     * @param \Closure(JsonRpcNotification<non-empty-string>): void $onNotification
+     *
+     * @throws ClientNotConnectedException
+     * @throws TransportAlreadyClosedException
+     */
+    public function listen(SubscriptionFilter $notifications, \Closure $onNotification): SubscriptionStream
+    {
+        $transport = $this->transport ?? throw new ClientNotConnectedException();
+
+        $id = $this->mintRequestId();
+        $request = new SubscriptionsListenRequest(
+            id: $id,
+            params: new SubscriptionsListenRequestParams(notifications: $notifications, meta: $this->stampMeta()),
+        );
+
+        // Claim the correlation slot first: a duplicate id must not leave a routing entry behind.
+        $response = $this->outboundRequests->register($id, SubscriptionsListenResultResponse::class);
+        $this->subscriptionListeners->register($id, $onNotification);
+
+        // Only an explicit await() observes the outcome, so the response is marked consumed here. Left
+        // unignored, a refused subscription would surface as an unhandled future when the stream is
+        // collected. A server that ends the stream releases its route on the way through.
+        $response
+            ->finally(function () use ($id): void {
+                $this->subscriptionListeners->unregister($id);
+            })
+            ->ignore()
+        ;
+
+        try {
+            $transport->send($request);
+        } catch (\Throwable $e) {
+            $this->subscriptionListeners->unregister($id);
+            $this->outboundRequests->forget($id);
+
+            throw $e;
+        }
+
+        return new SubscriptionStream($id, $response, function () use ($id, $transport): void {
+            $this->subscriptionListeners->unregister($id);
+
+            if (! $this->outboundRequests->forget($id)) {
+                // The server already answered, so no in-flight request remains for a cancellation to name.
+                return;
+            }
+
+            try {
+                $transport->send(new CancelledNotification(
+                    params: new CancelledNotificationParams(requestId: $id, reason: 'The subscription was closed.'),
+                ));
+            } catch (\Throwable $e) {
+                // Closing a stream whose transport already went away is teardown, not a failure to report.
+                $this->logger->debug(
+                    'Could not tell the server that subscription {id} was closed.',
+                    ['id' => $id->id, 'exception' => $e],
+                );
+            }
+        });
     }
 
     /**

@@ -17,6 +17,7 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
+use Nexus\Mcp\Client\Subscription\SubscriptionListenerRegistry;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
@@ -200,6 +201,7 @@ final class ClientBuilder
 
         $outboundRequests = new PendingOutboundRequests();
         $progressListeners = new ProgressListenerRegistry();
+        $subscriptionListeners = new SubscriptionListenerRegistry();
         $inboundRequests = new PendingInboundRequests();
 
         $requestHandlers = $this->requestHandlers;
@@ -223,11 +225,13 @@ final class ClientBuilder
                 $outboundRequests,
                 logger: $this->logger,
                 inboundRequests: $inboundRequests,
+                subscriptionListeners: $subscriptionListeners,
             ),
             $outboundRequests,
             $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),
             $this->progressTokenFactory ?? self::buildDefaultProgressTokenFactory(),
             progressListeners: $progressListeners,
+            subscriptionListeners: $subscriptionListeners,
             logger: $this->logger,
             requestTimeout: $this->requestTimeout,
             maxRequestTimeout: $this->maxRequestTimeout,
