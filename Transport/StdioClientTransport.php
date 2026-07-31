@@ -13,23 +13,29 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Transport;
 
+use Amp\CancelledException;
+use Amp\DeferredCancellation;
 use Amp\Process\Process;
+use Amp\Process\ProcessException;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Core\JsonRpc\SafeDisplay;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Transport\LineDuplex;
 use Nexus\Mcp\Core\Transport\LineReader;
 use Nexus\Mcp\Core\Transport\SendContext;
+use Nexus\Mcp\Core\Transport\Subscription;
 use Nexus\Mcp\Core\Transport\SubscriptionInterface;
-use Nexus\Mcp\Core\Transport\TransportInterface;
+use Nexus\Mcp\Core\Transport\SupervisableTransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+
+use function Amp\async;
 
 /**
  * Stdio MCP client transport. Launches an MCP server subprocess and exchanges
  * line-framed JSON-RPC envelopes over its STDIN/STDOUT.
  */
-final class StdioClientTransport implements TransportInterface
+final class StdioClientTransport implements SupervisableTransportInterface
 {
     private const string LABEL = 'Stdio client';
 
@@ -58,6 +64,17 @@ final class StdioClientTransport implements TransportInterface
     private readonly LineDuplex $duplex;
     private readonly LoggerInterface $logger;
     private ?Process $process = null;
+
+    /**
+     * Bounds the exit watch. `Process::join()` references the event loop while it awaits, so an
+     * unbounded watch would hold the loop open for the lifetime of the subprocess.
+     */
+    private ?DeferredCancellation $exitWatch = null;
+
+    /**
+     * @var array<int, \Closure(null|int): void>
+     */
+    private array $exitListeners = [];
 
     /**
      * @param list<string>               $command Subprocess argv (no shell interpretation).
@@ -149,6 +166,19 @@ final class StdioClientTransport implements TransportInterface
                 $this->logger->info('Subprocess stderr: {line}', ['line' => SafeDisplay::sanitise($line)]);
             },
         );
+
+        $this->watchForExit($process);
+    }
+
+    #[\Override]
+    public function onUnexpectedExit(\Closure $listener): SubscriptionInterface
+    {
+        $id = spl_object_id($listener);
+        $this->exitListeners[$id] = $listener;
+
+        return new Subscription(function () use ($id): void {
+            unset($this->exitListeners[$id]);
+        });
     }
 
     #[\Override]
@@ -160,6 +190,7 @@ final class StdioClientTransport implements TransportInterface
     #[\Override]
     public function close(): void
     {
+        $this->exitWatch?->cancel();
         $this->duplex->close();
     }
 
@@ -185,5 +216,45 @@ final class StdioClientTransport implements TransportInterface
     public function onClose(\Closure $listener): SubscriptionInterface
     {
         return $this->duplex->onClose($listener);
+    }
+
+    /**
+     * Reports an exit nobody asked for. `close()` cancels the watch, so a requested shutdown settles
+     * it without reaching the listeners.
+     */
+    private function watchForExit(Process $process): void
+    {
+        $this->exitWatch = new DeferredCancellation();
+        $cancellation = $this->exitWatch->getCancellation();
+
+        async(function () use ($process, $cancellation): void {
+            try {
+                $exitCode = $process->join($cancellation);
+            } catch (CancelledException|ProcessException $e) {
+                if ($e instanceof CancelledException) {
+                    return;
+                }
+
+                // The wrapper died without reporting a status. No test drives this: POSIX resolves an
+                // empty status pipe to 0, and CI runs no Windows job.
+                $exitCode = null; // @codeCoverageIgnore
+            }
+
+            $this->logger->warning(
+                '{label} transport subprocess exited unexpectedly (code {exitCode}).',
+                ['label' => self::LABEL, 'exitCode' => $exitCode ?? 'unknown'],
+            );
+
+            foreach ($this->exitListeners as $listener) {
+                try {
+                    $listener($exitCode);
+                } catch (\Throwable $e) {
+                    $this->logger->warning(
+                        '{label} transport exit listener threw.',
+                        ['label' => self::LABEL, 'exception' => $e],
+                    );
+                }
+            }
+        })->ignore();
     }
 }
