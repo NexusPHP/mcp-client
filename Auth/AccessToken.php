@@ -23,8 +23,8 @@ final readonly class AccessToken
     /**
      * @param string                 $value        The `access_token` value sent in the `Authorization` header
      * @param string                 $issuer       Issuer identifier of the authorization server that minted it
-     * @param ?int                   $expiresAt    Unix timestamp the token expires at, or `null` when the server named no lifetime
-     * @param ?string                $refreshToken The `refresh_token`, when the server issued one
+     * @param null|int               $expiresAt    Unix timestamp the token expires at, or `null` when the server named no lifetime
+     * @param null|string            $refreshToken The `refresh_token`, when the server issued one
      * @param list<non-empty-string> $scopes       Scopes the token was granted
      */
     public function __construct(

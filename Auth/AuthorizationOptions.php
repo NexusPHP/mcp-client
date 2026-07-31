@@ -23,8 +23,8 @@ final readonly class AuthorizationOptions
     /**
      * @param string                  $clientName                  Name shown to the resource owner on a consent screen
      * @param string                  $redirectUri                 Redirect URI the authorization response lands on, either loopback or HTTPS
-     * @param ?string                 $clientIdMetadataDocumentUrl HTTPS URL of a hosted Client ID Metadata Document, used verbatim as `client_id`
-     * @param ?ClientRegistration     $preRegistered               Credentials issued out of band, which take priority over every other mechanism
+     * @param null|string             $clientIdMetadataDocumentUrl HTTPS URL of a hosted Client ID Metadata Document, used verbatim as `client_id`
+     * @param null|ClientRegistration $preRegistered               Credentials issued out of band, which take priority over every other mechanism
      * @param ApplicationType         $applicationType             Declared during Dynamic Client Registration
      * @param int                     $maxScopeUpgrades            How many times a request may be retried after an insufficient-scope challenge
      * @param bool                    $requestOfflineAccess        Whether to ask for `offline_access`, and with it a refresh token, where the authorization server offers it

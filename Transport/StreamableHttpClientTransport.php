@@ -67,12 +67,12 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     private ?DeferredCancellation $lifetime = null;
 
     /**
-     * @param non-empty-string    $endpoint         Absolute URL of the server's MCP endpoint
-     * @param ?DelegateHttpClient $client           Defaults to the amphp default client
-     * @param float               $readTimeout      Seconds a response may stall before the exchange is abandoned.
-     *                                              It must exceed the server's SSE keep-alive interval, or a quiet
-     *                                              long-lived stream is torn down between keep-alives.
-     * @param int                 $maxResponseBytes Bytes a buffered body, or one SSE frame, may occupy
+     * @param non-empty-string        $endpoint         Absolute URL of the server's MCP endpoint
+     * @param null|DelegateHttpClient $client           Defaults to the amphp default client
+     * @param float                   $readTimeout      Seconds a response may stall before the exchange is abandoned.
+     *                                                  It must exceed the server's SSE keep-alive interval, or a quiet
+     *                                                  long-lived stream is torn down between keep-alives.
+     * @param int                     $maxResponseBytes Bytes a buffered body, or one SSE frame, may occupy
      */
     public function __construct(
         private readonly string $endpoint,

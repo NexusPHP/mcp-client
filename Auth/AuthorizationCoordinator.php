@@ -109,7 +109,7 @@ final class AuthorizationCoordinator
      * Obtains a token after the MCP server refused the one presented. What is held is dropped first, so the
      * next grant can follow the resource to a different authorization server.
      *
-     * @param ?AccessToken $refused The token the MCP server refused, or `null` when the request carried none
+     * @param null|AccessToken $refused The token the MCP server refused, or `null` when the request carried none
      */
     public function reauthorize(
         ?AccessToken $refused,
@@ -136,8 +136,8 @@ final class AuthorizationCoordinator
      * Obtains a token carrying scopes beyond those the presented one held, after the MCP server answered that
      * they were insufficient.
      *
-     * @param ?AccessToken $presented        The token the MCP server found too narrow, or `null` when the request carried none
-     * @param ScopeSet     $additionalScopes Scopes the insufficient-scope challenges asked for, accumulated onto the set already granted
+     * @param null|AccessToken $presented        The token the MCP server found too narrow, or `null` when the request carried none
+     * @param ScopeSet         $additionalScopes Scopes the insufficient-scope challenges asked for, accumulated onto the set already granted
      */
     public function upgradeScopes(
         ?AccessToken $presented,

@@ -40,8 +40,8 @@ final class RequestDeadline
     private readonly ?string $ceilingCallbackId;
 
     /**
-     * @param float  $timeout    Seconds the peer may stay silent before the request is abandoned
-     * @param ?float $maxTimeout Seconds the request may run in total however much progress arrives, or `null` to leave it unbounded
+     * @param float      $timeout    Seconds the peer may stay silent before the request is abandoned
+     * @param null|float $maxTimeout Seconds the request may run in total however much progress arrives, or `null` to leave it unbounded
      */
     public function __construct(private readonly float $timeout, ?float $maxTimeout = null)
     {

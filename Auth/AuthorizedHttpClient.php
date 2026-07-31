@@ -50,10 +50,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     private readonly AuthorizationCoordinator $coordinator;
 
     /**
-     * @param string                            $resource      Absolute URL of the MCP endpoint this client talks to
-     * @param DelegateHttpClient                $client        Inner client, which carries the authorization traffic as well as the MCP traffic
-     * @param ?TokenStoreInterface              $tokens        Defaults to a store that lives only as long as the process
-     * @param ?ClientRegistrationStoreInterface $registrations Defaults to a store that lives only as long as the process
+     * @param string                                $resource      Absolute URL of the MCP endpoint this client talks to
+     * @param DelegateHttpClient                    $client        Inner client, which carries the authorization traffic as well as the MCP traffic
+     * @param null|TokenStoreInterface              $tokens        Defaults to a store that lives only as long as the process
+     * @param null|ClientRegistrationStoreInterface $registrations Defaults to a store that lives only as long as the process
      */
     public function __construct(
         string $resource,

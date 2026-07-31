@@ -105,7 +105,7 @@ final readonly class TokenEndpoint
     /**
      * @param array<string, string> $parameters
      * @param ScopeSet              $requestedScopes   Scopes the token carries when the response names none
-     * @param ?string               $priorRefreshToken Refresh token kept when the response rotates none
+     * @param null|string           $priorRefreshToken Refresh token kept when the response rotates none
      */
     private function send(
         AuthorizationServerMetadata $metadata,

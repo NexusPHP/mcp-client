@@ -119,8 +119,8 @@ final class Client
     /**
      * @param \Closure(): (int|non-empty-string) $requestIdFactory
      * @param \Closure(): (int|non-empty-string) $progressTokenFactory
-     * @param ?float                             $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
-     * @param ?float                             $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
+     * @param null|float                         $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
+     * @param null|float                         $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -418,7 +418,7 @@ final class Client
      *
      * @param JsonRpcRequest<non-empty-string> $request
      * @param class-string<TResponse>          $response
-     * @param ?float                           $timeout  Seconds this one request may go unanswered, overriding the client's default
+     * @param null|float                       $timeout  Seconds this one request may go unanswered, overriding the client's default
      *
      * @return TResponse
      *
@@ -709,7 +709,7 @@ final class Client
     }
 
     /**
-     * @param ?float $timeout Overrides the configured idle deadline for one request
+     * @param null|float $timeout Overrides the configured idle deadline for one request
      */
     private function openDeadline(?float $timeout = null): ?RequestDeadline
     {
@@ -759,7 +759,7 @@ final class Client
      * The mirrored `Mcp-Param-{Name}` headers for one tool call, empty when the transport does not mirror
      * them or the tool declared none.
      *
-     * @param ?array<string, mixed> $arguments
+     * @param null|array<string, mixed> $arguments
      *
      * @return array<non-empty-string, string>
      */
