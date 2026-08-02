@@ -14,18 +14,21 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client;
 
 use Amp\CancelledException;
+use Amp\DeferredFuture;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Dispatch\RequestDeadline;
 use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
 use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
-use Nexus\Mcp\Client\Subscription\SubscriptionListenerRegistry;
+use Nexus\Mcp\Client\Subscription\OpenSubscription;
+use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
 use Nexus\Mcp\Client\Subscription\SubscriptionStream;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
 use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Exception\RequestTimeoutException;
+use Nexus\Mcp\Core\Exception\SupervisionExhaustedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
 use Nexus\Mcp\Core\Http\ParameterHeaders;
@@ -75,6 +78,7 @@ use Nexus\Mcp\Core\Schema\Result\ListResourcesResult;
 use Nexus\Mcp\Core\Schema\Result\ListResourceTemplatesResult;
 use Nexus\Mcp\Core\Schema\Result\ListToolsResult;
 use Nexus\Mcp\Core\Schema\Result\ReadResourceResult;
+use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
 use Nexus\Mcp\Core\Schema\ResultResponse\CallToolResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\CompleteResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\DiscoverResultResponse;
@@ -89,6 +93,7 @@ use Nexus\Mcp\Core\Schema\ServerCapabilities;
 use Nexus\Mcp\Core\Schema\SubscriptionFilter;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
+use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
@@ -138,7 +143,7 @@ final class Client
         private readonly \Closure $progressTokenFactory,
         private readonly ProtocolVersion $protocolVersion = new ProtocolVersion(version: ProtocolVersion::LATEST_VERSION),
         private readonly ProgressListenerRegistry $progressListeners = new ProgressListenerRegistry(),
-        private readonly SubscriptionListenerRegistry $subscriptionListeners = new SubscriptionListenerRegistry(),
+        private readonly SubscriptionRegistry $subscriptions = new SubscriptionRegistry(),
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly ?float $requestTimeout = self::DEFAULT_REQUEST_TIMEOUT,
         private readonly ?float $maxRequestTimeout = self::DEFAULT_MAX_REQUEST_TIMEOUT,
@@ -171,6 +176,12 @@ final class Client
                 $this->outboundRequests->reject($e->requestId, $e);
             }
 
+            if ($e instanceof SupervisionExhaustedException) {
+                // No further peer is coming, so a stream held open across the restarts has nothing left
+                // to be re-opened against and would wait for the life of the process.
+                $this->settleSubscriptions($e);
+            }
+
             $this->logger->error('Transport error.', ['exception' => $e]);
         });
         $transport->onDrain(function (): void {
@@ -181,6 +192,22 @@ final class Client
                 new TransportAlreadyClosedException(operation: 'await-response'),
             );
         });
+
+        if ($transport instanceof ReconnectingTransportInterface) {
+            $transport->onReconnect(function () use ($transport): void {
+                foreach ($this->subscriptions->all() as $subscription) {
+                    try {
+                        $this->openStream($subscription, $transport);
+                    } catch (\Throwable $e) {
+                        // Left registered, so the next replacement peer gets another go at it.
+                        $this->logger->error(
+                            'Could not re-open subscription {id} against the replacement peer.',
+                            ['id' => $subscription->subscriptionId->id, 'exception' => $e],
+                        );
+                    }
+                }
+            });
+        }
 
         $transport->start();
     }
@@ -197,6 +224,10 @@ final class Client
         // The cached bindings describe the server that just went away, so a later connection must not
         // mirror headers from them.
         $this->toolHeaderBindings = [];
+
+        // Settled before the close, so a supervised transport cannot answer the peer loss it is about to
+        // see by re-opening streams the caller has just given up.
+        $this->settleSubscriptions(new TransportAlreadyClosedException(operation: 'await-response'));
 
         $transport?->close();
     }
@@ -255,36 +286,24 @@ final class Client
         $transport = $this->transport ?? throw new ClientNotConnectedException();
 
         $id = $this->mintRequestId();
-        $request = new SubscriptionsListenRequest(
-            id: $id,
-            params: new SubscriptionsListenRequestParams(notifications: $notifications, meta: $this->stampMeta()),
-        );
 
-        // Claim the correlation slot first: a duplicate id must not leave a routing entry behind.
-        $response = $this->outboundRequests->register($id, SubscriptionsListenResultResponse::class);
-        $this->subscriptionListeners->register($id, $onNotification);
+        /** @var DeferredFuture<SubscriptionsListenResult> $outcome */
+        $outcome = new DeferredFuture();
 
-        // Only an explicit await() observes the outcome, so the response is marked consumed here. Left
-        // unignored, a refused subscription would surface as an unhandled future when the stream is
-        // collected. A server that ends the stream releases its route on the way through.
-        $response
-            ->finally(function () use ($id): void {
-                $this->subscriptionListeners->unregister($id);
-            })
-            ->ignore()
-        ;
+        // Only an explicit await() observes the outcome. Left unignored, a refused subscription would
+        // surface as an unhandled future when the stream is collected.
+        $future = $outcome->getFuture();
+        $future->ignore();
 
-        try {
-            $transport->send($request);
-        } catch (\Throwable $e) {
-            $this->subscriptionListeners->unregister($id);
-            $this->outboundRequests->forget($id);
+        $subscription = new OpenSubscription($id, $notifications, $onNotification, $outcome);
 
-            throw $e;
-        }
+        // Routed only once the correlation slot is claimed, so an id already in flight is refused before
+        // this stream can displace the routing entry of the live one that owns it.
+        $this->openStream($subscription, $transport);
+        $this->subscriptions->register($subscription);
 
-        return new SubscriptionStream($id, $response, function () use ($id, $transport): void {
-            $this->subscriptionListeners->unregister($id);
+        return new SubscriptionStream($id, $future, function () use ($id, $transport): void {
+            $this->subscriptions->forget($id);
 
             if (! $this->outboundRequests->forget($id)) {
                 // The server already answered, so no in-flight request remains for a cancellation to name.
@@ -506,6 +525,62 @@ final class Client
         ?float $timeout = null,
     ): JsonRpcResultResponse {
         return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
+    }
+
+    /**
+     * Sends `$subscription`'s listen request on `$transport` and routes that one connection's answer to
+     * the caller-facing outcome. Runs once per connection the subscription is carried on.
+     *
+     * @throws TransportAlreadyClosedException
+     */
+    private function openStream(OpenSubscription $subscription, TransportInterface $transport): void
+    {
+        $id = $subscription->subscriptionId;
+
+        // Claim the correlation slot first: a duplicate id must not leave a routing entry behind.
+        $response = $this->outboundRequests->register($id, SubscriptionsListenResultResponse::class);
+
+        $response
+            ->map(function (SubscriptionsListenResultResponse $response) use ($id): void {
+                // Absent when the caller closed the stream first, which owes them no outcome.
+                $this->subscriptions->forget($id)?->outcome->complete($response->result);
+            })
+            ->catch(function (\Throwable $e) use ($id, $transport): void {
+                // Read here rather than when the request went out, because only a failure that a
+                // replacement peer will be given another go at leaves the stream owing an outcome. A peer
+                // that answers "no" is answering, so it ends the stream however replaceable it was.
+                if ($transport instanceof ReconnectingTransportInterface && $transport->isReconnecting()) {
+                    return;
+                }
+
+                $this->subscriptions->forget($id)?->outcome->error($e);
+            })
+            ->ignore()
+        ;
+
+        try {
+            $transport->send(new SubscriptionsListenRequest(
+                id: $id,
+                params: new SubscriptionsListenRequestParams(
+                    notifications: $subscription->notifications,
+                    meta: $this->stampMeta(),
+                ),
+            ));
+        } catch (\Throwable $e) {
+            $this->outboundRequests->forget($id);
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Fails every stream still open, for a client that will not be re-opening them.
+     */
+    private function settleSubscriptions(\Throwable $reason): void
+    {
+        foreach ($this->subscriptions->drain() as $subscription) {
+            $subscription->outcome->error($reason);
+        }
     }
 
     /**

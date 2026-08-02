@@ -18,24 +18,25 @@ use Nexus\Mcp\Client\Exception\SubscriptionClosedException;
 use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
-use Nexus\Mcp\Core\Schema\ResultResponse\SubscriptionsListenResultResponse;
 
 /**
  * An open `subscriptions/listen` stream. Ends when the caller closes it or the server tears it down.
+ * A supervised transport re-opens it against each replacement peer under the same subscription id,
+ * so neither the id nor this object is spent by a restart.
  */
 final class SubscriptionStream
 {
     private bool $closed = false;
 
     /**
-     * @param Future<SubscriptionsListenResultResponse> $response
-     * @param \Closure(): void                          $onClose
+     * @param Future<SubscriptionsListenResult> $outcome
+     * @param \Closure(): void                  $onClose
      *
      * @internal
      */
     public function __construct(
         public readonly RequestId $subscriptionId,
-        private readonly Future $response,
+        private readonly Future $outcome,
         private readonly \Closure $onClose,
     ) {
     }
@@ -54,7 +55,8 @@ final class SubscriptionStream
     }
 
     /**
-     * Blocks until the server tears the subscription down of its own accord.
+     * Blocks until the server tears the subscription down of its own accord. A peer that dies under
+     * supervision does not settle this: the wait resumes against the replacement.
      *
      * @throws RemoteCallFailedException
      * @throws SubscriptionClosedException
@@ -67,6 +69,6 @@ final class SubscriptionStream
             throw new SubscriptionClosedException($this->subscriptionId);
         }
 
-        return $this->response->await()->result;
+        return $this->outcome->await();
     }
 }

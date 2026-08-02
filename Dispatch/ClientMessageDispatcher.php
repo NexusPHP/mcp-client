@@ -15,7 +15,7 @@ namespace Nexus\Mcp\Client\Dispatch;
 
 use Amp\Cancellation;
 use Nexus\Mcp\Client\ClientContext;
-use Nexus\Mcp\Client\Subscription\SubscriptionListenerRegistry;
+use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
@@ -73,7 +73,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         private LoggerInterface $logger = new NullLogger(),
         private JsonRpcMessageParser $parser = new JsonRpcMessageParser(),
         private PendingInboundRequests $inboundRequests = new PendingInboundRequests(),
-        private SubscriptionListenerRegistry $subscriptionListeners = new SubscriptionListenerRegistry(),
+        private SubscriptionRegistry $subscriptions = new SubscriptionRegistry(),
     ) {
         $this->coroutines = new PendingCoroutines($this->logger);
         $this->responseSender = new ResponseSender($this->logger);
@@ -318,13 +318,14 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         // The spec names progress as the example of a notification never delivered on a stream, and its
         // per-call route extends the request deadline, so a stray tag must not divert it.
-        $listener = null === $subscriptionId || ProgressNotification::getMethod() === $method
+        $subscription = null === $subscriptionId || ProgressNotification::getMethod() === $method
             ? null
-            : $this->subscriptionListeners->get($subscriptionId);
+            : $this->subscriptions->get($subscriptionId);
 
-        if (null !== $listener) {
+        if (null !== $subscription) {
             // The client asked for this notification by subscribing, so the stream that requested it is
             // the more specific route and the method handler does not also see it.
+            $listener = $subscription->onNotification;
             $this->coroutines->track(async(function () use ($listener, $notification, $method): void {
                 try {
                     $listener($notification);

@@ -20,11 +20,12 @@ use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
 use Nexus\Mcp\Core\Exception\TransportNotStartedException;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
+use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
+use Nexus\Mcp\Core\Transport\Subscription;
 use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\SupervisableTransportInterface;
 use Nexus\Mcp\Core\Transport\TransportEvents;
-use Nexus\Mcp\Core\Transport\TransportInterface;
 use Nexus\Mcp\Core\Transport\TransportState;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -36,7 +37,7 @@ use Revolt\EventLoop;
  *
  * @see docs/transports.md for the close, budget and retry semantics.
  */
-final class SupervisedTransport implements TransportInterface
+final class SupervisedTransport implements ReconnectingTransportInterface
 {
     private const string LABEL = 'Supervised client';
 
@@ -59,6 +60,11 @@ final class SupervisedTransport implements TransportInterface
      * @var list<SubscriptionInterface>
      */
     private array $subscriptions = [];
+
+    /**
+     * @var array<int, \Closure(): void>
+     */
+    private array $reconnectListeners = [];
 
     private ?string $respawnWatcher = null;
 
@@ -152,6 +158,23 @@ final class SupervisedTransport implements TransportInterface
     public function onClose(\Closure $listener): SubscriptionInterface
     {
         return $this->events->onClose($listener);
+    }
+
+    #[\Override]
+    public function isReconnecting(): bool
+    {
+        return null !== $this->respawnWatcher;
+    }
+
+    #[\Override]
+    public function onReconnect(\Closure $listener): SubscriptionInterface
+    {
+        $id = spl_object_id($listener);
+        $this->reconnectListeners[$id] = $listener;
+
+        return new Subscription(function () use ($id): void {
+            unset($this->reconnectListeners[$id]);
+        });
     }
 
     /**
@@ -255,6 +278,20 @@ final class SupervisedTransport implements TransportInterface
                 // instead of escaping into the event loop's error handler.
                 $this->events->emitError($e);
                 $this->scheduleRespawn(null);
+
+                return;
+            }
+
+            // Announced only once the replacement is serving, so a listener that rebuilds per-connection
+            // state writes to a peer that can take it.
+            foreach ($this->reconnectListeners as $listener) {
+                try {
+                    $listener();
+                } catch (\Throwable $e) {
+                    // One listener's failure must not cost the rest theirs: the protocol layer rebuilding
+                    // its state is in this chain, and losing it silently strands every open stream.
+                    $this->events->emitError($e);
+                }
             }
         });
     }
