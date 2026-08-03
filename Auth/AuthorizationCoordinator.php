@@ -14,7 +14,9 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
+use Amp\Future;
 use Amp\Sync\LocalSemaphore;
+use Amp\Sync\Lock;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
@@ -24,8 +26,9 @@ use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Revolt\EventLoop\FiberLocal;
 
-use function Amp\Sync\synchronized;
+use function Amp\async;
 
 /**
  * Runs the OAuth 2.1 flow end to end for one MCP server: discovery, client registration, the user-agent round
@@ -62,6 +65,13 @@ final class AuthorizationCoordinator
      */
     private LocalSemaphore $lock;
 
+    /**
+     * Whether the fiber running this call already holds the lock.
+     *
+     * @var FiberLocal<bool>
+     */
+    private FiberLocal $reentrant;
+
     public function __construct(
         private readonly ResourceIdentifier $resource,
         private readonly MetadataDiscovery $discovery,
@@ -74,6 +84,7 @@ final class AuthorizationCoordinator
     ) {
         $this->granted = new ScopeSet();
         $this->lock = new LocalSemaphore(1);
+        $this->reentrant = new FiberLocal(static fn(): bool => false);
     }
 
     /**
@@ -96,7 +107,7 @@ final class AuthorizationCoordinator
             return $token;
         }
 
-        return synchronized($this->lock, function () use ($cancellation): ?AccessToken {
+        return $this->runExclusively($cancellation, function () use ($cancellation): ?AccessToken {
             // Another caller may have replaced it while this one waited its turn, and what it obtained is
             // held to the same checks rather than trusted for having arrived first.
             $current = $this->readToken();
@@ -116,7 +127,7 @@ final class AuthorizationCoordinator
         ?WwwAuthenticateChallenge $challenge,
         Cancellation $cancellation,
     ): AccessToken {
-        return synchronized($this->lock, function () use ($refused, $challenge, $cancellation): AccessToken {
+        return $this->runExclusively($cancellation, function () use ($refused, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
             // Another caller may have replaced the refused token while this one waited its turn, and what it
@@ -145,7 +156,7 @@ final class AuthorizationCoordinator
         ?WwwAuthenticateChallenge $challenge,
         Cancellation $cancellation,
     ): AccessToken {
-        return synchronized($this->lock, function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
+        return $this->runExclusively($cancellation, function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
             // A token another caller obtained while this one waited its turn serves it too, but only once it
@@ -176,6 +187,43 @@ final class AuthorizationCoordinator
     private function readToken(): ?AccessToken
     {
         return $this->tokens->read($this->resource->value);
+    }
+
+    /**
+     * Runs an operation with the lock held, waiting for it no longer than the caller's own cancellation.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $operation
+     *
+     * @return T
+     */
+    private function runExclusively(Cancellation $cancellation, \Closure $operation): mixed
+    {
+        if ($this->reentrant->get()) {
+            return $operation();
+        }
+
+        $lock = $this->acquireLock($cancellation);
+        $this->reentrant->set(true);
+
+        try {
+            return $operation();
+        } finally {
+            $this->reentrant->set(false);
+            $lock->release();
+        }
+    }
+
+    private function acquireLock(Cancellation $cancellation): Lock
+    {
+        // A queued waiter cannot be withdrawn from the semaphore, so one that gives up keeps its place in
+        // line. The lock it is eventually handed frees itself once nothing holds it, which is what lets the
+        // caller behind it through.
+        /** @var Future<Lock> $pending */
+        $pending = async(fn(): Lock => $this->lock->acquire());
+
+        return $pending->await($cancellation);
     }
 
     private function runAuthorization(
