@@ -16,8 +16,9 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an MCP server answers that the token's scopes are insufficient and the client is configured to
- * report that rather than ask the resource owner for more.
+ * Thrown when an MCP server answers that the token's scopes are insufficient and asking the resource owner
+ * for more is not an option: the client is configured to report instead, the upgrade budget is spent, or the
+ * token already carries everything the challenge names.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
  */
@@ -29,7 +30,7 @@ final class InsufficientScopeException extends \RuntimeException implements McpE
     public function __construct(public readonly array $required)
     {
         parent::__construct([] === $required
-            ? 'The MCP server requires a scope the token does not carry, and named none.'
-            : \sprintf('The MCP server requires the scope "%s", which the token does not carry.', implode(' ', $required)));
+            ? 'The MCP server answered insufficient_scope without naming a scope.'
+            : \sprintf('The MCP server requires the scope "%s".', implode(' ', $required)));
     }
 }

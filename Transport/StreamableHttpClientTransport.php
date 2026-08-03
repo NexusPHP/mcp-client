@@ -29,6 +29,7 @@ use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
 use Nexus\Mcp\Core\Exception\TransportNotStartedException;
+use Nexus\Mcp\Core\Exception\UnexpectedHttpStatusException;
 use Nexus\Mcp\Core\Http\HttpStatus;
 use Nexus\Mcp\Core\Http\SseFrameParser;
 use Nexus\Mcp\Core\Http\StandardHeaders;
@@ -260,10 +261,47 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     private function exchange(JsonRpcMessage $message, array $headers, Cancellation $cancellation): void
     {
         $response = $this->client->request($this->buildRequest($message, $headers), $cancellation);
+        $status = $response->getStatus();
 
-        if ($response->getStatus() === HttpStatus::Accepted->value) {
-            // The server accepted a notification. There is no body to correlate.
+        if (HttpStatus::Accepted->value === $status) {
+            if ($message instanceof JsonRpcRequest) {
+                // 202 acknowledges a message that expects no answer. A request expects one, and
+                // treating the acknowledgement as its answer would leave it pending forever.
+                throw new UnexpectedHttpStatusException($status);
+            }
+
             return;
+        }
+
+        if (HttpStatus::Ok->value !== $status) {
+            if (! $message instanceof JsonRpcRequest || self::isEventStream($response)) {
+                throw new UnexpectedHttpStatusException($status);
+            }
+
+            try {
+                $payload = $this->buffer($response, $cancellation);
+            } catch (ResponseTooLargeException) {
+                // An oversized error page is still just an error page. The status is the diagnosis.
+                throw new UnexpectedHttpStatusException($status);
+            }
+
+            $decoded = json_decode($payload, true);
+
+            // A failure status stands only when its body answers the very request this exchange
+            // carries. Anything else (an id-less error envelope, a notification, an answer to some
+            // other id) cannot settle that request, so emitting it would strand the request forever.
+            if (\is_array($decoded)
+                && JsonRpcMessage::JSONRPC_VERSION === ($decoded['jsonrpc'] ?? null)
+                && $message->id->id === ($decoded['id'] ?? null)
+                && (\array_key_exists('result', $decoded) || \array_key_exists('error', $decoded))
+            ) {
+                Assert::that($decoded)->isMap(\sprintf('%s received a response envelope that is not a string-keyed object.', self::LABEL));
+                $this->events->emitMessage($decoded, new ReceiveContext());
+
+                return;
+            }
+
+            throw new UnexpectedHttpStatusException($status, $payload);
         }
 
         if (self::isEventStream($response)) {
@@ -272,13 +310,19 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             return;
         }
 
+        $this->events->emitMessage(self::decode($this->buffer($response, $cancellation)), new ReceiveContext());
+    }
+
+    /**
+     * @throws ResponseTooLargeException
+     */
+    private function buffer(Response $response, Cancellation $cancellation): string
+    {
         try {
-            $payload = $response->getBody()->buffer($cancellation, $this->maxResponseBytes);
+            return $response->getBody()->buffer($cancellation, $this->maxResponseBytes);
         } catch (BufferException $e) {
             throw new ResponseTooLargeException($this->maxResponseBytes, $e);
         }
-
-        $this->events->emitMessage(self::decode($payload), new ReceiveContext());
     }
 
     /**

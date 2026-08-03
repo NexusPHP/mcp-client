@@ -96,7 +96,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             $strayed = null === $token ? null : $this->findHopOffOrigin($response);
 
             if (null !== $strayed) {
-                self::drain($response);
+                self::drain($response, $cancellation);
 
                 throw new RedirectRefusedException((string) $attempt->getUri(), $strayed);
             }
@@ -127,9 +127,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 // The caller asked to be told rather than asked, so neither the retry budget nor whether
                 // another round would help has any bearing on what happens next.
                 if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
-                    self::drain($response);
-
-                    throw new InsufficientScopeException($challenged->values);
+                    self::report($response, $challenged, $cancellation);
                 }
 
                 if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
@@ -138,7 +136,9 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'attempts' => $scopeUpgrades,
                     ]);
 
-                    return $response;
+                    // The union across every round is what a fresh grant would actually need. Reporting
+                    // only the last challenge would send a re-requesting caller after a narrower token.
+                    self::report($response, $additionalScopes->mergeWith($challenged), $cancellation);
                 }
 
                 // Granting again would produce the same token and the same answer, so the only thing another
@@ -150,12 +150,12 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'scopes' => $challenged->toParameter() ?? 'no scope at all',
                     ]);
 
-                    return $response;
+                    self::report($response, $challenged, $cancellation);
                 }
 
                 ++$scopeUpgrades;
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
-                self::drain($response);
+                self::drain($response, $cancellation);
                 $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge, $cancellation);
 
                 continue;
@@ -167,7 +167,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             }
 
             $reauthorized = true;
-            self::drain($response);
+            self::drain($response, $cancellation);
             $this->coordinator->reauthorize($token, $challenge, $cancellation);
         }
     }
@@ -194,17 +194,28 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     }
 
     /**
+     * Drains the unwinnable challenge and reports it to the caller.
+     */
+    private static function report(Response $response, ScopeSet $challenged, Cancellation $cancellation): never
+    {
+        self::drain($response, $cancellation);
+
+        throw new InsufficientScopeException($challenged->values);
+    }
+
+    /**
      * Reads a challenge body to its end so its connection returns to the pool. An undrained body cancels
      * instead, which tears the connection down for the whole of the authorization flow, user included.
      */
-    private static function drain(Response $response): void
+    private static function drain(Response $response, Cancellation $cancellation): void
     {
         try {
-            $response->getBody()->buffer(limit: self::MAX_CHALLENGE_BODY_BYTES);
+            $response->getBody()->buffer($cancellation, limit: self::MAX_CHALLENGE_BODY_BYTES);
         } catch (HttpException|StreamException) {
             // Losing the body of a challenge is never a reason to abandon the recovery it asked for. This
             // covers the oversized case, a connection that dies partway through it, and a body the server
-            // framed so badly that the parser gives up on it.
+            // framed so badly that the parser gives up on it. A cancellation propagates instead: the
+            // caller stopped waiting, and the recovery goes with it.
         }
     }
 
