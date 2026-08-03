@@ -19,7 +19,6 @@ use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
 use Nexus\Mcp\Core\Exception\TransportNotStartedException;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
-use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
 use Nexus\Mcp\Core\Transport\Subscription;
@@ -39,10 +38,21 @@ use Revolt\EventLoop;
  */
 final class SupervisedTransport implements ReconnectingTransportInterface
 {
+    /**
+     * Seconds the restart count is measured over before it starts again from zero.
+     */
+    public const float DEFAULT_RESTART_WINDOW = 60.0;
+
     private const string LABEL = 'Supervised client';
 
     private readonly TransportEvents $events;
     private readonly LoggerInterface $logger;
+
+    /**
+     * @var \Closure(): float
+     */
+    private readonly \Closure $clock;
+
     private TransportState $state = TransportState::Idle;
     private ?SupervisableTransportInterface $inner = null;
 
@@ -52,9 +62,14 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     private bool $connectionEnded = true;
 
     /**
-     * Consecutive respawns that have not yet carried an inbound message.
+     * Respawns counted so far in the current window.
      */
     private int $restarts = 0;
+
+    /**
+     * When the current window opened, as a reading from `$clock`. Zero until the first respawn.
+     */
+    private float $windowStartedAt = 0.0;
 
     /**
      * @var list<SubscriptionInterface>
@@ -75,20 +90,26 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     private bool $respawning = false;
 
     /**
-     * @param \Closure(): SupervisableTransportInterface $factory      Mints one connection, called once per spawn.
-     * @param int                                        $maxRestarts  Consecutive respawns allowed before giving up.
-     * @param float                                      $restartDelay Seconds to wait before each respawn.
+     * @param \Closure(): SupervisableTransportInterface $factory       Mints one connection, called once per spawn.
+     * @param int                                        $maxRestarts   Respawns allowed within one window before giving up.
+     * @param float                                      $restartDelay  Seconds to wait before each respawn.
+     * @param float                                      $restartWindow Seconds the restart count is measured over.
+     * @param null|\Closure(): float                     $clock         Reads the current time in **seconds**, replaceable so the window boundary is exact under test. A source in other units silently makes the budget unspendable.
      */
     public function __construct(
         private readonly \Closure $factory,
         private readonly int $maxRestarts = 3,
         private readonly float $restartDelay = 0.1,
         LoggerInterface $logger = new NullLogger(),
+        private readonly float $restartWindow = self::DEFAULT_RESTART_WINDOW,
+        ?\Closure $clock = null,
     ) {
         Assert::that($maxRestarts)->isPositiveInt('maxRestarts must be a positive integer, {value} given.');
         Assert::that($restartDelay)->isBetween(0.0, \PHP_FLOAT_MAX, message: 'restartDelay must not be negative, {value} given.');
+        Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
 
         $this->logger = $logger;
+        $this->clock = $clock ?? static fn(): float => microtime(true);
         $this->events = new TransportEvents();
     }
 
@@ -128,6 +149,12 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     {
         // Every step below is idempotent, so a second call needs no guard of its own.
         $this->state = TransportState::Closed;
+
+        // The dead connection's own close already went out, and the caller has been holding its state for
+        // a replacement ever since. Abandoning that replacement owes them a second close, or they wait on
+        // a peer that is never coming. A replacement that is already up owes them nothing extra: the
+        // teardown below emits for it like any other live connection.
+        $abandonsAReplacement = $this->respawning && $this->connectionEnded;
         $this->respawning = false;
 
         if (null !== $this->respawnWatcher) {
@@ -138,6 +165,16 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         try {
             // Told before delegating, so a peer that throws on the way down cannot swallow the signal.
             $this->endConnection();
+
+            if ($abandonsAReplacement) {
+                try {
+                    $this->events->emitClose();
+                } catch (\Throwable $e) {
+                    // Reached from a loop callback on the exhausted-budget path, and one listener failing
+                    // must not strand the rest, which is the very thing this emission exists to prevent.
+                    $this->events->emitError($e);
+                }
+            }
         } finally {
             $this->retireConnection();
         }
@@ -199,12 +236,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         $this->connectionEnded = false;
 
         $this->subscriptions = [
-            $inner->onMessage(function (array $envelope, ReceiveContext $context): void {
-                // A served message proves the replacement works, so the budget bounds consecutive
-                // failures rather than the lifetime of the supervision.
-                $this->restarts = 0;
-                $this->events->emitMessage($envelope, $context);
-            }),
+            $inner->onMessage($this->events->emitMessage(...)),
             $inner->onError($this->events->emitError(...)),
             $inner->onDrain($this->events->emitDrain(...)),
             $inner->onClose($this->endConnection(...)),
@@ -250,6 +282,18 @@ final class SupervisedTransport implements ReconnectingTransportInterface
             return;
         }
 
+        $now = ($this->clock)();
+
+        // Counted over a moving window, so a peer that ran for a while and then died starts a fresh
+        // budget. Treating a served message as proof of health cannot work: the protocol layer replays
+        // its own state on every reconnect, so even a crash-looping peer answers something.
+        // The window opens at the first restart rather than at whatever the clock's origin happens to be:
+        // a monotonic source legitimately starts near zero, which would anchor it before the process ran.
+        if (0 === $this->restarts || $this->restartWindow < $now - $this->windowStartedAt) {
+            $this->restarts = 0;
+            $this->windowStartedAt = $now;
+        }
+
         ++$this->restarts;
 
         if ($this->restarts > $this->maxRestarts) {
@@ -278,7 +322,14 @@ final class SupervisedTransport implements ReconnectingTransportInterface
 
         $this->retireConnection();
 
-        // close() cancels this watcher, so reaching the callback proves supervision is still wanted.
+        // Retiring suspends on any transport that drains on the way down, so a close can land inside it.
+        // Arming now would resurrect a peer the caller has already been told is never coming, and nothing
+        // afterwards would ever close it.
+        if (TransportState::Running !== $this->state) {
+            return;
+        }
+
+        // close() cancels this watcher, so reaching the callback proves supervision was still wanted.
         $this->respawnWatcher = EventLoop::delay($this->restartDelay, function (): void {
             $this->respawnWatcher = null;
 
@@ -290,6 +341,14 @@ final class SupervisedTransport implements ReconnectingTransportInterface
                 $this->events->emitError($e);
                 $this->scheduleRespawn(null);
 
+                return;
+            }
+
+            // Starting suspends too, so the same close can land while the replacement comes up. It is
+            // nobody's peer then, and announcing it would have listeners write to a closed transport.
+            if (TransportState::Running !== $this->state) {
+                // The close that got here retired this connection on its way past: `spawn()` publishes
+                // it before `start()` suspends, so there is nothing left to release.
                 return;
             }
 

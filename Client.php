@@ -229,6 +229,9 @@ final class Client
                     return;
                 }
 
+                // Nothing replaces this peer, so a retained request has run out of peers to be sent to.
+                // Streams need no help here: the close that got us this far freed their correlation
+                // slots, and each stream settles from its own failed exchange.
                 $this->outboundRequests->cancelAll($error);
             });
         });
