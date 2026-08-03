@@ -467,36 +467,59 @@ final class Client
     }
 
     /**
-     * @throws ClientNotConnectedException
-     * @throws RequestTimeoutException
-     * @throws ServerCapabilityNotSupportedException
-     * @throws TransportAlreadyClosedException
-     */
-    public function readResource(string $uri): InputRequiredResult|ReadResourceResult
-    {
-        return $this->sendRequest(
-            new ReadResourceRequest(
-                id: $this->mintRequestId(),
-                params: new ReadResourceRequestParams(uri: $uri, meta: $this->stampMeta()),
-            ),
-            ReadResourceResultResponse::class,
-        )->result;
-    }
-
-    /**
-     * @param null|array<string, string> $arguments
+     * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
      */
-    public function getPrompt(string $name, ?array $arguments = null): GetPromptResult|InputRequiredResult
-    {
+    public function readResource(
+        string $uri,
+        ?array $inputResponses = null,
+        ?string $requestState = null,
+    ): InputRequiredResult|ReadResourceResult {
+        return $this->sendRequest(
+            new ReadResourceRequest(
+                id: $this->mintRequestId(),
+                params: new ReadResourceRequestParams(
+                    uri: $uri,
+                    meta: $this->stampMeta(),
+                    inputResponses: $inputResponses,
+                    requestState: $requestState,
+                ),
+            ),
+            ReadResourceResultResponse::class,
+        )->result;
+    }
+
+    /**
+     * @param null|array<string, string>        $arguments
+     * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     *
+     * @throws ClientNotConnectedException
+     * @throws RequestTimeoutException
+     * @throws ServerCapabilityNotSupportedException
+     * @throws TransportAlreadyClosedException
+     */
+    public function getPrompt(
+        string $name,
+        ?array $arguments = null,
+        ?array $inputResponses = null,
+        ?string $requestState = null,
+    ): GetPromptResult|InputRequiredResult {
         return $this->sendRequest(
             new GetPromptRequest(
                 id: $this->mintRequestId(),
-                params: new GetPromptRequestParams(name: $name, meta: $this->stampMeta(), arguments: $arguments),
+                params: new GetPromptRequestParams(
+                    name: $name,
+                    meta: $this->stampMeta(),
+                    arguments: $arguments,
+                    inputResponses: $inputResponses,
+                    requestState: $requestState,
+                ),
             ),
             GetPromptResultResponse::class,
         )->result;
