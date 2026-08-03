@@ -55,8 +55,8 @@ final class AuthorizationCoordinator
     private ?DiscoveredResource $discovered = null;
 
     /**
-     * What the MCP server has granted, kept apart from the token so dropping a spent or refused one does not
-     * narrow what the next grant asks for.
+     * What the most recent grant granted, kept apart from the token so dropping a spent or refused one does
+     * not narrow what the next grant asks for.
      */
     private ScopeSet $granted;
 
@@ -382,11 +382,12 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Records what a token was granted, then stores it.
+     * Records what a token was granted, then stores it. A grant that omits a scope the authorization server
+     * had granted earlier is what withdraws it, so this replaces the set rather than adding to it.
      */
     private function rememberGrant(AccessToken $token): void
     {
-        $this->granted = $this->readGrantedScopes()->mergeWith(new ScopeSet($token->scopes));
+        $this->granted = new ScopeSet($token->scopes);
         $this->tokens->write($this->resource->value, $token);
     }
 
