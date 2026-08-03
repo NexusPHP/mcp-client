@@ -93,6 +93,7 @@ use Nexus\Mcp\Core\Schema\ResultResponse\ReadResourceResultResponse;
 use Nexus\Mcp\Core\Schema\ResultResponse\SubscriptionsListenResultResponse;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
 use Nexus\Mcp\Core\Schema\SubscriptionFilter;
+use Nexus\Mcp\Core\Transport\AbortableTransportInterface;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
@@ -376,6 +377,8 @@ final class Client
                 // The server already answered, so no in-flight request remains for a cancellation to name.
                 return;
             }
+
+            self::abortExchange($transport, $id);
 
             try {
                 $transport->send(new CancelledNotification(
@@ -681,6 +684,17 @@ final class Client
     }
 
     /**
+     * Stops the transport-level work still running for a request nobody is waiting on any more. A stream
+     * left reading would otherwise run until the peer ends it, which a `subscriptions/listen` never does.
+     */
+    private static function abortExchange(TransportInterface $transport, RequestId $id): void
+    {
+        if ($transport instanceof AbortableTransportInterface) {
+            $transport->abort($id);
+        }
+    }
+
+    /**
      * Fails every stream still open, for a client that will not be re-opening them.
      */
     private function settleSubscriptions(\Throwable $reason): void
@@ -952,6 +966,7 @@ final class Client
         CancelledException $cause,
     ): RequestTimeoutException {
         $this->outboundRequests->forget($request->id);
+        self::abortExchange($transport, $request->id);
 
         try {
             $transport->send(new CancelledNotification(

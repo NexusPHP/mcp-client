@@ -14,7 +14,9 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Transport;
 
 use Amp\ByteStream\BufferException;
+use Amp\Cancellation;
 use Amp\CancelledException;
+use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\HttpClientBuilder;
@@ -33,6 +35,8 @@ use Nexus\Mcp\Core\Http\StandardHeaders;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResponse;
+use Nexus\Mcp\Core\Schema\RequestId;
+use Nexus\Mcp\Core\Transport\AbortableTransportInterface;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\SendContext;
@@ -50,7 +54,7 @@ use function Amp\async;
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
  */
-final class StreamableHttpClientTransport implements ParameterHeaderMirroringInterface
+final class StreamableHttpClientTransport implements AbortableTransportInterface, ParameterHeaderMirroringInterface
 {
     /**
      * Bytes a single response may occupy before it is abandoned.
@@ -65,6 +69,14 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     private readonly PendingCoroutines $exchanges;
     private TransportState $state = TransportState::Idle;
     private ?DeferredCancellation $lifetime = null;
+
+    /**
+     * One entry per request POST still in flight, so a caller giving up on a response can stop just that
+     * exchange. Notifications carry no id and nobody awaits them, so they are not tracked.
+     *
+     * @var array<non-empty-string, DeferredCancellation>
+     */
+    private array $inFlight = [];
 
     /**
      * @param non-empty-string        $endpoint         Absolute URL of the server's MCP endpoint
@@ -132,16 +144,45 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
 
         // Only a request has a caller awaiting a response, so only a request names one to fail.
         $requestId = $message instanceof JsonRpcRequest ? $message->id : null;
+        $cancellation = $lifetime->getCancellation();
+        $held = null;
+
+        if (null !== $requestId) {
+            $abort = new DeferredCancellation();
+            $this->inFlight[self::buildKey($requestId)] = $abort;
+            $held = $abort;
+
+            // Composed rather than replaced: a close still stops every exchange, and `abort()` reaches
+            // only this one.
+            $cancellation = new CompositeCancellation($cancellation, $abort->getCancellation());
+        }
 
         // The POST runs detached so a caller awaiting the correlated response is not the thing driving it.
-        $this->exchanges->track(async(function () use ($message, $headers, $lifetime, $requestId): void {
+        $this->exchanges->track(async(function () use ($message, $headers, $cancellation, $requestId, $held): void {
             try {
-                $this->exchange($message, $headers, $lifetime);
+                $this->exchange($message, $headers, $cancellation);
             } catch (CancelledException) {
-                // The transport closed while this exchange was in flight. Shutdown is not a fault, and the
-                // protocol layer already learns of it from the close signal.
+                // Either the transport closed or the caller abandoned this request. Neither is a fault:
+                // the protocol layer learns of a close from the close signal, and it is what asked for
+                // the abort.
             } catch (\Throwable $e) {
-                $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
+                try {
+                    $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
+                } catch (\Throwable) {
+                    // A listener that throws must not cost this exchange its release, and an error channel
+                    // that just failed is no place to report its own failure.
+                }
+            }
+
+            // Only its own entry: an id already re-sent belongs to a later exchange, and evicting that
+            // one would cancel it through the destructor. Leaving an entry behind instead would grow the
+            // map for the transport's life.
+            if (null !== $requestId) {
+                $key = self::buildKey($requestId);
+
+                if (($this->inFlight[$key] ?? null) === $held) {
+                    unset($this->inFlight[$key]);
+                }
             }
         }));
     }
@@ -162,8 +203,9 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
 
             // Closing the response stream is itself the cancellation signal, so shutdown aborts the in-flight
             // POSTs. Awaiting them first would hang on a `subscriptions/listen` stream, which never ends.
+            // The reference is kept: releasing it would cancel through the destructor instead, leaving the
+            // shutdown to depend on refcounting rather than on this call.
             $this->lifetime?->cancel();
-            $this->lifetime = null;
             $this->exchanges->flushPending();
             $this->events->emitClose();
         }
@@ -193,14 +235,31 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
         return $this->events->onClose($listener);
     }
 
+    #[\Override]
+    public function abort(RequestId $id): void
+    {
+        // Cancelling settles the exchange's own cancellation, which unwinds the POST and, on a streaming
+        // answer, the read loop with it. The entry itself is released where every exchange releases it,
+        // once the unwinding reaches the end of the coroutine.
+        ($this->inFlight[self::buildKey($id)] ?? null)?->cancel();
+    }
+
+    /**
+     * @return non-empty-string
+     */
+    private static function buildKey(RequestId $id): string
+    {
+        return \sprintf('"id":%s', var_export($id->id, true));
+    }
+
     /**
      * POSTs one message and emits whatever the server answers with.
      *
      * @param array<non-empty-string, string> $headers Mirrored parameter headers the protocol layer computed
      */
-    private function exchange(JsonRpcMessage $message, array $headers, DeferredCancellation $lifetime): void
+    private function exchange(JsonRpcMessage $message, array $headers, Cancellation $cancellation): void
     {
-        $response = $this->client->request($this->buildRequest($message, $headers), $lifetime->getCancellation());
+        $response = $this->client->request($this->buildRequest($message, $headers), $cancellation);
 
         if ($response->getStatus() === HttpStatus::Accepted->value) {
             // The server accepted a notification. There is no body to correlate.
@@ -208,13 +267,13 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
         }
 
         if (self::isEventStream($response)) {
-            $this->readStream($response, $lifetime);
+            $this->readStream($response, $cancellation);
 
             return;
         }
 
         try {
-            $payload = $response->getBody()->buffer($lifetime->getCancellation(), $this->maxResponseBytes);
+            $payload = $response->getBody()->buffer($cancellation, $this->maxResponseBytes);
         } catch (BufferException $e) {
             throw new ResponseTooLargeException($this->maxResponseBytes, $e);
         }
@@ -247,12 +306,10 @@ final class StreamableHttpClientTransport implements ParameterHeaderMirroringInt
     /**
      * Emits each frame of an SSE response as it arrives, until the server ends the stream.
      */
-    private function readStream(Response $response, DeferredCancellation $lifetime): void
+    private function readStream(Response $response, Cancellation $cancellation): void
     {
         $parser = new SseFrameParser($this->maxResponseBytes);
         $body = $response->getBody();
-        $cancellation = $lifetime->getCancellation();
-
         $chunk = $body->read($cancellation);
 
         // A null chunk is the server closing the stream, which ends the exchange.
