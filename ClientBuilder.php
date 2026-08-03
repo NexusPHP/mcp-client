@@ -45,6 +45,7 @@ final class ClientBuilder
     private LoggerInterface $logger;
     private ?float $requestTimeout = Client::DEFAULT_REQUEST_TIMEOUT;
     private ?float $maxRequestTimeout = Client::DEFAULT_MAX_REQUEST_TIMEOUT;
+    private bool $retryLostRequests = false;
 
     /**
      * @var array<non-empty-string, RequestHandlerInterface<non-empty-string, Result, ClientContext>>
@@ -137,6 +138,19 @@ final class ClientBuilder
         }
 
         $this->maxRequestTimeout = $seconds;
+
+        return $this;
+    }
+
+    /**
+     * Sends a state-reading request again when the peer carrying it is replaced, instead of failing it.
+     * Off by default: a retry is at-least-once, so the peer may have served the request before it died.
+     *
+     * @see Client for the requests this covers. `tools/call` and vendor methods are never among them.
+     */
+    public function setRetryLostRequests(bool $retry): self
+    {
+        $this->retryLostRequests = $retry;
 
         return $this;
     }
@@ -235,6 +249,7 @@ final class ClientBuilder
             logger: $this->logger,
             requestTimeout: $this->requestTimeout,
             maxRequestTimeout: $this->maxRequestTimeout,
+            retryLostRequests: $this->retryLostRequests,
         );
     }
 

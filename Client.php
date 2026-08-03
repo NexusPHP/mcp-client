@@ -63,9 +63,11 @@ use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\InputResponseRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\SubscriptionsListenRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParamsInterface;
 use Nexus\Mcp\Core\Schema\Resource\ResourceTemplateReference;
 use Nexus\Mcp\Core\Schema\Result\CallToolResult;
 use Nexus\Mcp\Core\Schema\Result\CompleteResult;
@@ -98,6 +100,7 @@ use Nexus\Mcp\Core\Transport\SendContext;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Revolt\EventLoop;
 
 /**
  * Client-side entry point: drives the transport lifecycle and exposes the typed
@@ -115,6 +118,23 @@ final class Client
      * Seconds a request may run in total, however much progress arrives.
      */
     public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
+
+    /**
+     * The requests a lost call may be sent again as. A retry is at-least-once, because the peer may have
+     * carried the work out before it died, so only requests that read state are eligible. The spec marks
+     * no tool as idempotent, which keeps `tools/call` off the list however harmless a given tool is, and
+     * a vendor method sent through `sendRequest()` has no semantics this SDK can judge.
+     */
+    private const array RETRYABLE_REQUESTS = [
+        CompleteRequest::class,
+        DiscoverRequest::class,
+        GetPromptRequest::class,
+        ListPromptsRequest::class,
+        ListResourcesRequest::class,
+        ListResourceTemplatesRequest::class,
+        ListToolsRequest::class,
+        ReadResourceRequest::class,
+    ];
 
     private ?TransportInterface $transport = null;
     private ?Implementation $serverInfo = null;
@@ -147,6 +167,7 @@ final class Client
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly ?float $requestTimeout = self::DEFAULT_REQUEST_TIMEOUT,
         private readonly ?float $maxRequestTimeout = self::DEFAULT_MAX_REQUEST_TIMEOUT,
+        private readonly bool $retryLostRequests = false,
     ) {
     }
 
@@ -178,8 +199,10 @@ final class Client
 
             if ($e instanceof SupervisionExhaustedException) {
                 // No further peer is coming, so a stream held open across the restarts has nothing left
-                // to be re-opened against and would wait for the life of the process.
+                // to be re-opened against, and a retained request has nothing left to be sent to. Both
+                // would otherwise wait for the life of the process.
                 $this->settleSubscriptions($e);
+                $this->outboundRequests->cancelAll($e);
             }
 
             $this->logger->error('Transport error.', ['exception' => $e]);
@@ -187,14 +210,53 @@ final class Client
         $transport->onDrain(function (): void {
             $this->dispatcher->flushPending();
         });
-        $transport->onClose(function (): void {
-            $this->outboundRequests->cancelAll(
-                new TransportAlreadyClosedException(operation: 'await-response'),
-            );
+        $transport->onClose(function () use ($transport): void {
+            $error = new TransportAlreadyClosedException(operation: 'await-response');
+
+            // A retained request outlives the peer that was carrying it, so only the rest fail here.
+            $this->outboundRequests->cancelUnretained($error);
+
+            // The supervisor decides on a replacement after emitting this close, so whether one is coming
+            // is only readable on the next tick.
+            EventLoop::queue(function () use ($transport, $error): void {
+                if ($transport !== $this->transport) {
+                    // A transport this client has already let go of speaks for nothing that is pending
+                    // now. `disconnect()` failed what it was owed before detaching it.
+                    return;
+                }
+
+                if ($transport instanceof ReconnectingTransportInterface && $transport->isReconnecting()) {
+                    return;
+                }
+
+                $this->outboundRequests->cancelAll($error);
+            });
         });
 
         if ($transport instanceof ReconnectingTransportInterface) {
             $transport->onReconnect(function () use ($transport): void {
+                foreach ($this->outboundRequests->collectRetained() as $retained) {
+                    $request = $retained['request'];
+
+                    try {
+                        $transport->send($request, $retained['context']);
+                    } catch (\Throwable $e) {
+                        if ($transport->isReconnecting()) {
+                            // This replacement died too. Left retained so the peer after it tries again,
+                            // matching what the subscription walk below does.
+                            $this->logger->warning(
+                                'Could not send request {id} again to the replacement peer.',
+                                ['id' => $request->id->id, 'exception' => $e],
+                            );
+
+                            continue;
+                        }
+
+                        // Nothing else will carry it, so the caller hears now rather than at the deadline.
+                        $this->outboundRequests->reject($request->id, $e);
+                    }
+                }
+
                 foreach ($this->subscriptions->all() as $subscription) {
                     try {
                         $this->openStream($subscription, $transport);
@@ -226,8 +288,10 @@ final class Client
         $this->toolHeaderBindings = [];
 
         // Settled before the close, so a supervised transport cannot answer the peer loss it is about to
-        // see by re-opening streams the caller has just given up.
-        $this->settleSubscriptions(new TransportAlreadyClosedException(operation: 'await-response'));
+        // see by re-opening streams, or re-sending requests, the caller has just given up.
+        $error = new TransportAlreadyClosedException(operation: 'await-response');
+        $this->settleSubscriptions($error);
+        $this->outboundRequests->cancelAll($error);
 
         $transport?->close();
     }
@@ -574,6 +638,46 @@ final class Client
     }
 
     /**
+     * Whether a peer that dies mid-`$request` should be replaced and the request sent again, rather than
+     * the caller hearing that the connection went away.
+     *
+     * @param JsonRpcRequest<non-empty-string> $request
+     */
+    private function retainsAcrossRestart(JsonRpcRequest $request): bool
+    {
+        if (! $this->retryLostRequests) {
+            return false;
+        }
+
+        $method = $request::getMethod();
+
+        foreach (self::RETRYABLE_REQUESTS as $retryable) {
+            if ($retryable::getMethod() === $method) {
+                // A multi-round-trip continuation only names a state-reading method. It carries the user's
+                // answers and an opaque resume token, so sending it again hands a one-time answer over
+                // twice and resumes work the peer that issued the token no longer has.
+                return ! self::resumesAnEarlierRound($request->params);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether these params continue an exchange the server suspended, rather than opening a fresh one.
+     */
+    private static function resumesAnEarlierRound(?RequestParamsInterface $params): bool
+    {
+        [$inputResponses, $requestState] = match (true) {
+            $params instanceof InputResponseRequestParams => [$params->inputResponses, $params->requestState],
+            $params instanceof ReadResourceRequestParams => [$params->inputResponses, $params->requestState],
+            default => [null, null],
+        };
+
+        return null !== $inputResponses || null !== $requestState;
+    }
+
+    /**
      * Fails every stream still open, for a client that will not be re-opening them.
      */
     private function settleSubscriptions(\Throwable $reason): void
@@ -741,7 +845,13 @@ final class Client
 
         $this->assertServerSupports($request::getMethod());
 
-        $future = $this->outboundRequests->register($request->id, $response);
+        $retained = $this->retainsAcrossRestart($request);
+        $future = $this->outboundRequests->register(
+            $request->id,
+            $response,
+            $retained ? $request : null,
+            $retained ? $context : null,
+        );
 
         try {
             $transport->send($request, $context);

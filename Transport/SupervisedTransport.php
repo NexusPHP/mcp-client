@@ -69,6 +69,12 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     private ?string $respawnWatcher = null;
 
     /**
+     * True from the moment a replacement is decided on until it is serving. Tracked apart from the
+     * watcher because arming one happens after a retire that suspends.
+     */
+    private bool $respawning = false;
+
+    /**
      * @param \Closure(): SupervisableTransportInterface $factory      Mints one connection, called once per spawn.
      * @param int                                        $maxRestarts  Consecutive respawns allowed before giving up.
      * @param float                                      $restartDelay Seconds to wait before each respawn.
@@ -122,6 +128,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     {
         // Every step below is idempotent, so a second call needs no guard of its own.
         $this->state = TransportState::Closed;
+        $this->respawning = false;
 
         if (null !== $this->respawnWatcher) {
             EventLoop::cancel($this->respawnWatcher);
@@ -163,7 +170,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     #[\Override]
     public function isReconnecting(): bool
     {
-        return null !== $this->respawnWatcher;
+        return $this->respawning;
     }
 
     #[\Override]
@@ -265,6 +272,10 @@ final class SupervisedTransport implements ReconnectingTransportInterface
             ['label' => self::LABEL, 'exitCode' => $exitCode ?? 'unknown', 'attempt' => $this->restarts, 'budget' => $this->maxRestarts],
         );
 
+        // Set before retiring, which suspends on any transport that drains its streams on the way down.
+        // Anything the close already queued runs inside that suspension and must see a replacement coming.
+        $this->respawning = true;
+
         $this->retireConnection();
 
         // close() cancels this watcher, so reaching the callback proves supervision is still wanted.
@@ -281,6 +292,8 @@ final class SupervisedTransport implements ReconnectingTransportInterface
 
                 return;
             }
+
+            $this->respawning = false;
 
             // Announced only once the replacement is serving, so a listener that rebuilds per-connection
             // state writes to a peer that can take it.
