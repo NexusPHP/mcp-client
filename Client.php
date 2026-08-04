@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client;
 
 use Amp\CancelledException;
 use Amp\DeferredFuture;
+use Nexus\Mcp\Client\Dispatch\DiscoveredServerCapabilities;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Dispatch\RequestDeadline;
 use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
@@ -139,7 +140,6 @@ final class Client
 
     private ?TransportInterface $transport = null;
     private ?Implementation $serverInfo = null;
-    private ?ServerCapabilities $serverCapabilities = null;
 
     /**
      * `x-mcp-header` bindings of every tool a `tools/list` admitted, keyed by tool name. Only a transport
@@ -150,10 +150,11 @@ final class Client
     private array $toolHeaderBindings = [];
 
     /**
-     * @param \Closure(): (int|non-empty-string) $requestIdFactory
-     * @param \Closure(): (int|non-empty-string) $progressTokenFactory
-     * @param null|float                         $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
-     * @param null|float                         $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
+     * @param \Closure(): (int|non-empty-string)        $requestIdFactory
+     * @param \Closure(): (int|non-empty-string)        $progressTokenFactory
+     * @param null|float                                $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
+     * @param null|float                                $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
+     * @param array<non-empty-string, non-empty-string> $extensionMethods     Outbound extension method => owning capability identifier
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -169,6 +170,8 @@ final class Client
         private readonly ?float $requestTimeout = self::DEFAULT_REQUEST_TIMEOUT,
         private readonly ?float $maxRequestTimeout = self::DEFAULT_MAX_REQUEST_TIMEOUT,
         private readonly bool $retryLostRequests = false,
+        private readonly array $extensionMethods = [],
+        private readonly DiscoveredServerCapabilities $serverCapabilities = new DiscoveredServerCapabilities(),
     ) {
     }
 
@@ -316,7 +319,7 @@ final class Client
      */
     public function getServerCapabilities(): ?ServerCapabilities
     {
-        return $this->serverCapabilities;
+        return $this->serverCapabilities->current();
     }
 
     /**
@@ -335,7 +338,7 @@ final class Client
         )->result;
 
         $this->serverInfo = $result->meta->serverInfo;
-        $this->serverCapabilities = $result->capabilities;
+        $this->serverCapabilities->record($result->capabilities);
 
         return $result;
     }
@@ -618,6 +621,20 @@ final class Client
         ?float $timeout = null,
     ): JsonRpcResultResponse {
         return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
+    }
+
+    /**
+     * Builds the self-describing `_meta` envelope stamped onto every typed request. Callers
+     * hand-building a request for `sendRequest()` use it to carry the same lifecycle fields.
+     */
+    public function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
+    {
+        return new RequestMetaObject(
+            protocolVersion: $this->protocolVersion,
+            clientInfo: $this->clientInfo,
+            clientCapabilities: $this->clientCapabilities,
+            progressToken: $progressToken,
+        );
     }
 
     /**
@@ -1068,28 +1085,21 @@ final class Client
     }
 
     /**
-     * Builds the self-describing `_meta` envelope stamped onto every request.
-     */
-    private function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
-    {
-        return new RequestMetaObject(
-            protocolVersion: $this->protocolVersion,
-            clientInfo: $this->clientInfo,
-            clientCapabilities: $this->clientCapabilities,
-            progressToken: $progressToken,
-        );
-    }
-
-    /**
      * @throws ServerCapabilityNotSupportedException
      */
     private function assertServerSupports(string $method): void
     {
-        $capabilities = $this->serverCapabilities;
+        $capabilities = $this->serverCapabilities->current();
 
         if (null === $capabilities) {
             // Discovery has not run, so there are no advertised capabilities to enforce.
             return;
+        }
+
+        $owner = $this->extensionMethods[$method] ?? null;
+
+        if (null !== $owner && ! \array_key_exists($owner, $capabilities->extensions ?? [])) {
+            throw new ServerCapabilityNotSupportedException($method);
         }
 
         $supported = match ($method) {

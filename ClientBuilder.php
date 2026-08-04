@@ -15,21 +15,32 @@ namespace Nexus\Mcp\Client;
 
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
+use Nexus\Mcp\Client\Dispatch\DiscoveredServerCapabilities;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
+use Nexus\Mcp\Client\Handler\Request\ExtensionGateRequestHandler;
 use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
+use Nexus\Mcp\Core\Exception\DuplicateExtensionException;
+use Nexus\Mcp\Core\Exception\ExtensionMethodCollisionException;
+use Nexus\Mcp\Core\Exception\MissingNotificationClassException;
+use Nexus\Mcp\Core\Extension\ExtensionCollection;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\Notification\CancelledNotificationHandler;
 use Nexus\Mcp\Core\Handler\NotificationHandlerInterface;
 use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
+use Nexus\Mcp\Core\JsonRpc\JsonRpcMessageParser;
+use Nexus\Mcp\Core\JsonRpc\JsonRpcMethodRegistry;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Icon;
 use Nexus\Mcp\Core\Schema\Implementation;
+use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
+use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 use Nexus\Mcp\Core\Schema\Result;
+use Nexus\Mcp\Core\Validation\MethodClassValidator;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -58,6 +69,21 @@ final class ClientBuilder
     private array $notificationHandlers = [];
 
     /**
+     * @var array<non-empty-string, class-string<JsonRpcRequest<non-empty-string>>>
+     */
+    private array $requestClasses = [];
+
+    /**
+     * @var array<non-empty-string, class-string<JsonRpcNotification<non-empty-string>>>
+     */
+    private array $notificationClasses = [];
+
+    /**
+     * @var ExtensionCollection<ClientContext>
+     */
+    private readonly ExtensionCollection $extensions;
+
+    /**
      * @var null|\Closure(): (int|non-empty-string)
      */
     private ?\Closure $requestIdFactory = null;
@@ -71,6 +97,27 @@ final class ClientBuilder
     {
         $this->clientCapabilities = new ClientCapabilities();
         $this->logger = new NullLogger();
+        $this->extensions = new ExtensionCollection();
+    }
+
+    /**
+     * Enables `$extension`, advertising its capability identifier on every request's
+     * `_meta` and refusing its outbound methods against a server that did not
+     * advertise the extension.
+     *
+     * @throws DuplicateExtensionException
+     * @throws ExtensionMethodCollisionException
+     */
+    public function enableExtension(ClientExtensionInterface $extension): self
+    {
+        $this->extensions->add(
+            $extension,
+            claimedRequests: array_keys($this->requestHandlers),
+            claimedNotifications: array_keys($this->notificationHandlers),
+            outboundRequests: $extension->getOutboundRequests(),
+        );
+
+        return $this;
     }
 
     /**
@@ -185,9 +232,25 @@ final class ClientBuilder
      *
      * @param non-empty-string                                                 $method
      * @param RequestHandlerInterface<non-empty-string, Result, ClientContext> $handler
+     * @param class-string<JsonRpcRequest<non-empty-string>>                   $requestClass Parses inbound `$method` envelopes into typed requests
      */
-    public function addRequestHandler(string $method, RequestHandlerInterface $handler): self
+    public function addRequestHandler(string $method, RequestHandlerInterface $handler, string $requestClass): self
     {
+        $this->extensions->assertNotOwned($method);
+
+        MethodClassValidator::validate($requestClass, $method);
+
+        $registry = JsonRpcMethodRegistry::requests();
+
+        if (\array_key_exists($method, $registry)) {
+            Assert::that($requestClass)->isIdentical($registry[$method], \sprintf(
+                'Request method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
+                $method,
+            ));
+        } else {
+            $this->requestClasses[$method] = $requestClass;
+        }
+
         $this->requestHandlers[$method] = $handler;
 
         return $this;
@@ -196,11 +259,40 @@ final class ClientBuilder
     /**
      * Registers a handler for an inbound notification method.
      *
-     * @param non-empty-string                               $method
-     * @param NotificationHandlerInterface<non-empty-string> $handler
+     * Spec-defined notifications already parse, so `$notificationClass` may be omitted for them.
+     * A vendor notification method must name the class that parses it.
+     *
+     * @param non-empty-string                                         $method
+     * @param NotificationHandlerInterface<non-empty-string>           $handler
+     * @param null|class-string<JsonRpcNotification<non-empty-string>> $notificationClass
+     *
+     * @throws MissingNotificationClassException
      */
-    public function addNotificationHandler(string $method, NotificationHandlerInterface $handler): self
-    {
+    public function addNotificationHandler(
+        string $method,
+        NotificationHandlerInterface $handler,
+        ?string $notificationClass = null,
+    ): self {
+        $this->extensions->assertNotOwned($method, isNotification: true);
+
+        $registryClass = JsonRpcMethodRegistry::notifications()[$method] ?? null;
+
+        if (null === $registryClass && null === $notificationClass) {
+            throw new MissingNotificationClassException($method);
+        }
+
+        if (null !== $registryClass && null !== $notificationClass) {
+            Assert::that($notificationClass)->isIdentical($registryClass, \sprintf(
+                'Notification method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
+                $method,
+            ));
+        }
+
+        if (null !== $notificationClass) {
+            MethodClassValidator::validate($notificationClass, $method, isNotification: true);
+            $this->notificationClasses[$method] = $notificationClass;
+        }
+
         $this->notificationHandlers[$method] = $handler;
 
         return $this;
@@ -218,10 +310,20 @@ final class ClientBuilder
         $subscriptions = new SubscriptionRegistry();
         $inboundRequests = new PendingInboundRequests();
 
-        $requestHandlers = $this->requestHandlers;
+        $discoveredCapabilities = new DiscoveredServerCapabilities();
+        $extensionRequestHandlers = [];
+
+        foreach ($this->extensions->getRequestHandlerGroups() as $identifier => $group) {
+            foreach ($group as $extensionMethod => $extensionHandler) {
+                $extensionRequestHandlers[$extensionMethod] = new ExtensionGateRequestHandler($identifier, $extensionHandler, $discoveredCapabilities);
+            }
+        }
+
+        $requestHandlers = [...$extensionRequestHandlers, ...$this->requestHandlers];
 
         $notificationHandlers = [
             CancelledNotification::getMethod() => new CancelledNotificationHandler($inboundRequests, $this->logger),
+            ...$this->extensions->buildNotificationHandlers(),
             ...$this->notificationHandlers,
         ];
         $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
@@ -232,12 +334,16 @@ final class ClientBuilder
 
         return new Client(
             $this->clientInfo,
-            $this->clientCapabilities,
+            $this->buildClientCapabilities(),
             new ClientMessageDispatcher(
                 new HandlerRegistry($requestHandlers, RequestHandlerInterface::class, 'Request handler'),
                 new HandlerRegistry($notificationHandlers, NotificationHandlerInterface::class, 'Notification handler'),
                 $outboundRequests,
                 logger: $this->logger,
+                parser: new JsonRpcMessageParser(
+                    [...$this->extensions->buildRequestClasses(), ...$this->requestClasses],
+                    [...$this->extensions->buildNotificationClasses(), ...$this->notificationClasses],
+                ),
                 inboundRequests: $inboundRequests,
                 subscriptions: $subscriptions,
             ),
@@ -250,6 +356,39 @@ final class ClientBuilder
             requestTimeout: $this->requestTimeout,
             maxRequestTimeout: $this->maxRequestTimeout,
             retryLostRequests: $this->retryLostRequests,
+            extensionMethods: $this->extensions->getOutboundOwners(),
+            serverCapabilities: $discoveredCapabilities,
+        );
+    }
+
+    /**
+     * Merges the enabled extensions' capability entries into the declared client
+     * capabilities, refusing an identifier declared on both sides.
+     *
+     * @throws DuplicateExtensionException
+     */
+    private function buildClientCapabilities(): ClientCapabilities
+    {
+        $slot = $this->extensions->buildCapabilitySlot();
+
+        if (null === $slot) {
+            return $this->clientCapabilities;
+        }
+
+        $base = $this->clientCapabilities;
+        $declared = $base->extensions ?? [];
+
+        foreach (array_keys($slot) as $identifier) {
+            if (\array_key_exists($identifier, $declared)) {
+                throw new DuplicateExtensionException($identifier);
+            }
+        }
+
+        return new ClientCapabilities(
+            elicitation: $base->elicitation,
+            experimental: $base->experimental,
+            extensions: [...$declared, ...$slot],
+            extras: $base->extras,
         );
     }
 
