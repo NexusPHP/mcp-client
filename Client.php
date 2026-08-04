@@ -638,6 +638,15 @@ final class Client
     }
 
     /**
+     * Mints a request id from the builder-configured factory, so hand-built
+     * `sendRequest()` requests share the id scheme of the typed methods.
+     */
+    public function mintRequestId(): RequestId
+    {
+        return new RequestId(id: ($this->requestIdFactory)());
+    }
+
+    /**
      * Sends `$subscription`'s listen request on `$transport` and routes that one connection's answer to
      * the caller-facing outcome. Runs once per connection the subscription is carried on.
      *
@@ -1115,11 +1124,6 @@ final class Client
         if (! $supported) {
             throw new ServerCapabilityNotSupportedException($method);
         }
-    }
-
-    private function mintRequestId(): RequestId
-    {
-        return new RequestId(id: ($this->requestIdFactory)());
     }
 
     private function mintProgressToken(): ProgressToken
