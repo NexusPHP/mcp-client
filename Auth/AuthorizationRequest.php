@@ -38,7 +38,7 @@ final class AuthorizationRequest
         bool $allowInsecureLoopback = false,
     ): AuthorizationRedirect {
         $endpoint = $metadata->authorizationEndpoint;
-        Assert::that($endpoint)->not()->isNull(\sprintf(
+        Assert::that($endpoint)->isNonEmptyString(\sprintf(
             'The authorization server "%s" publishes no authorization endpoint.',
             $metadata->issuer,
         ));

@@ -94,7 +94,7 @@ final readonly class TokenEndpoint
         Cancellation $cancellation,
     ): AccessToken {
         $refreshToken = $token->refreshToken;
-        Assert::that($refreshToken)->not()->isNull('The access token carries no refresh token to redeem.');
+        Assert::that($refreshToken)->isString('The access token carries no refresh token to redeem.');
 
         return $this->send($metadata, $registration, [
             'grant_type' => 'refresh_token',
@@ -134,7 +134,7 @@ final readonly class TokenEndpoint
         Cancellation $cancellation,
     ): AccessToken {
         $endpoint = $metadata->tokenEndpoint;
-        Assert::that($endpoint)->not()->isNull(\sprintf(
+        Assert::that($endpoint)->isNonEmptyString(\sprintf(
             'The authorization server "%s" publishes no token endpoint.',
             $metadata->issuer,
         ));
@@ -157,7 +157,7 @@ final readonly class TokenEndpoint
 
             if (TokenEndpointAuthMethod::ClientSecretPost === $registration->tokenEndpointAuthMethod) {
                 $secret = $registration->clientSecret;
-                Assert::that($secret)->not()->isNull(self::describeMissingSecret($registration));
+                Assert::that($secret)->isString(self::describeMissingSecret($registration));
                 $parameters['client_secret'] = $secret;
             }
         }
@@ -231,7 +231,7 @@ final readonly class TokenEndpoint
     private static function buildBasicCredentials(ClientRegistration $registration): string
     {
         $secret = $registration->clientSecret;
-        Assert::that($secret)->not()->isNull(self::describeMissingSecret($registration));
+        Assert::that($secret)->isString(self::describeMissingSecret($registration));
 
         return 'Basic '.base64_encode(urlencode($registration->clientId).':'.urlencode($secret));
     }
