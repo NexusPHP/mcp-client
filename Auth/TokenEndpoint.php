@@ -30,7 +30,8 @@ use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Http\HttpStatus;
 
 /**
- * Redeems an authorization code, and later a refresh token, at an authorization server's token endpoint.
+ * Redeems a grant at an authorization server's token endpoint: an authorization code, a refresh token, or
+ * the form body a caller-built grant supplies.
  *
  * @internal
  *
@@ -103,6 +104,23 @@ final readonly class TokenEndpoint
     }
 
     /**
+     * Redeems a caller-built grant, with client authentication, error triage, and the token read applied the
+     * same way as for the built-in grants.
+     *
+     * @param array<string, string> $parameters      Full form body of the grant, `grant_type` included
+     * @param ScopeSet              $requestedScopes Scopes the token carries when the response names none
+     */
+    public function requestToken(
+        AuthorizationServerMetadata $metadata,
+        ClientRegistration $registration,
+        array $parameters,
+        ScopeSet $requestedScopes,
+        Cancellation $cancellation,
+    ): AccessToken {
+        return $this->send($metadata, $registration, $parameters, $requestedScopes, null, $cancellation);
+    }
+
+    /**
      * @param array<string, string> $parameters
      * @param ScopeSet              $requestedScopes   Scopes the token carries when the response names none
      * @param null|string           $priorRefreshToken Refresh token kept when the response rotates none
@@ -128,6 +146,12 @@ final readonly class TokenEndpoint
         // the body but never in both.
         if (TokenEndpointAuthMethod::ClientSecretBasic === $registration->tokenEndpointAuthMethod) {
             $headers['Authorization'] = self::buildBasicCredentials($registration);
+        } elseif (TokenEndpointAuthMethod::PrivateKeyJwt === $registration->tokenEndpointAuthMethod) {
+            // RFC 7523 has the assertion itself name the client, so `client_id` stays out of the body.
+            Assert::that($parameters)->hasOffset('client_assertion', \sprintf(
+                'Client "%s" must carry a "client_assertion" parameter to authenticate with "private_key_jwt".',
+                $registration->clientId,
+            ));
         } else {
             $parameters['client_id'] = $registration->clientId;
 

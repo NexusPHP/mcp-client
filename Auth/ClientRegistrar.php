@@ -16,6 +16,7 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
+use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationFailedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
@@ -112,11 +113,16 @@ final readonly class ClientRegistrar
             throw new ClientRegistrationRequiredException($metadata->issuer);
         }
 
+        // RFC 7591 registers an array of redirect URIs, and the grant types below name the flow that lands
+        // on one, so a client that has no redirect URI has nothing to register here.
+        $redirectUri = $options->redirectUri;
+        Assert::that($redirectUri)->isNonEmptyString('Dynamic Client Registration needs a redirect URI, and the authorization options carry none.');
+
         SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'registration endpoint', $this->allowInsecureLoopback);
 
         $request = new Request($endpoint, 'POST', json_encode([
             'client_name' => $options->clientName,
-            'redirect_uris' => [$options->redirectUri],
+            'redirect_uris' => [$redirectUri],
             'grant_types' => ['authorization_code', 'refresh_token'],
             'response_types' => ['code'],
             'token_endpoint_auth_method' => TokenEndpointAuthMethod::None->value,
@@ -169,9 +175,16 @@ final readonly class ClientRegistrar
             return null === $secret ? TokenEndpointAuthMethod::None : TokenEndpointAuthMethod::ClientSecretBasic;
         }
 
-        return TokenEndpointAuthMethod::tryFrom($declared) ?? throw new ClientRegistrationFailedException(
-            'invalid_client_metadata',
-            \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', $declared),
-        );
+        $method = TokenEndpointAuthMethod::tryFrom($declared);
+
+        // A dynamic registration carries no signing key, so JWT client authentication cannot be honoured.
+        if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
+            throw new ClientRegistrationFailedException(
+                'invalid_client_metadata',
+                \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', $declared),
+            );
+        }
+
+        return $method;
     }
 }

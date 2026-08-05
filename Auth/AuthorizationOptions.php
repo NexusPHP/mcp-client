@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Core\Auth\ApplicationType;
+use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 
 /**
  * How this client identifies itself to the authorization servers protecting the MCP servers it talks to.
@@ -22,7 +23,7 @@ final readonly class AuthorizationOptions
 {
     /**
      * @param string                  $clientName                  Name shown to the resource owner on a consent screen
-     * @param string                  $redirectUri                 Redirect URI the authorization response lands on, either loopback or HTTPS
+     * @param null|string             $redirectUri                 Redirect URI the authorization response lands on, either loopback or HTTPS. `null` for grants that never visit an authorization endpoint
      * @param null|string             $clientIdMetadataDocumentUrl HTTPS URL of a hosted Client ID Metadata Document, used verbatim as `client_id`
      * @param null|ClientRegistration $preRegistered               Credentials issued out of band, which take priority over every other mechanism
      * @param ApplicationType         $applicationType             Declared during Dynamic Client Registration
@@ -35,7 +36,7 @@ final readonly class AuthorizationOptions
      */
     public function __construct(
         public string $clientName,
-        public string $redirectUri,
+        public ?string $redirectUri = null,
         public ?string $clientIdMetadataDocumentUrl = null,
         public ?ClientRegistration $preRegistered = null,
         public ApplicationType $applicationType = ApplicationType::Native,
@@ -46,10 +47,21 @@ final readonly class AuthorizationOptions
         public float $timeout = 10.0,
         public bool $allowInsecureLoopback = false,
     ) {
-        SecureEndpoint::verifyRedirectUri($redirectUri);
+        if (null !== $redirectUri) {
+            SecureEndpoint::verifyRedirectUri($redirectUri);
+        }
 
         if (null !== $clientIdMetadataDocumentUrl) {
             SecureEndpoint::verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
+        }
+
+        // Presenting a JWT client assertion needs a signing key, which no registration carries. The client
+        // credentials extension takes its key alongside the identifier instead.
+        if (TokenEndpointAuthMethod::PrivateKeyJwt === $preRegistered?->tokenEndpointAuthMethod) {
+            throw new \InvalidArgumentException(\sprintf(
+                'Pre-registered credentials cannot authenticate with "%s". Configure a ClientCredentialsGrant with a PrivateKeyJwtCredential instead.',
+                TokenEndpointAuthMethod::PrivateKeyJwt->value,
+            ));
         }
     }
 }

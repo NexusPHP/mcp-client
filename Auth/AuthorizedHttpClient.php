@@ -19,6 +19,7 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\HttpException;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
+use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\InsufficientScopeException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
@@ -50,20 +51,32 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     private readonly AuthorizationCoordinator $coordinator;
 
     /**
-     * @param string                                $resource      Absolute URL of the MCP endpoint this client talks to
-     * @param DelegateHttpClient                    $client        Inner client, which carries the authorization traffic as well as the MCP traffic
-     * @param null|TokenStoreInterface              $tokens        Defaults to a store that lives only as long as the process
-     * @param null|ClientRegistrationStoreInterface $registrations Defaults to a store that lives only as long as the process
+     * @param string                                $resource          Absolute URL of the MCP endpoint this client talks to
+     * @param null|UserAuthorizationInterface       $userAuthorization Puts the resource owner in front of the authorization server on the authorization-code grant. `null` when a grant strategy runs instead
+     * @param DelegateHttpClient                    $client            Inner client, which carries the authorization traffic as well as the MCP traffic
+     * @param null|TokenStoreInterface              $tokens            Defaults to a store that lives only as long as the process
+     * @param null|ClientRegistrationStoreInterface $registrations     Defaults to a store that lives only as long as the process
+     * @param null|GrantStrategyInterface           $grantStrategy     An unattended grant run in place of the authorization-code round trip
      */
     public function __construct(
         string $resource,
         private readonly AuthorizationOptions $options,
-        UserAuthorizationInterface $userAuthorization,
+        ?UserAuthorizationInterface $userAuthorization,
         DelegateHttpClient $client,
         ?TokenStoreInterface $tokens = null,
         ?ClientRegistrationStoreInterface $registrations = null,
         private readonly LoggerInterface $logger = new NullLogger(),
+        ?GrantStrategyInterface $grantStrategy = null,
     ) {
+        if (null !== $userAuthorization) {
+            Assert::that($grantStrategy)->isNull('A user authorization and a grant strategy were both given, and the client can run only one.');
+            Assert::that($options->redirectUri)->isNonEmptyString('A user authorization needs a redirect URI, and the authorization options carry none.');
+            $strategy = new AuthorizationCodeGrantStrategy($userAuthorization);
+        } else {
+            Assert::that($grantStrategy)->isInstanceOf(GrantStrategyInterface::class, 'The client needs a user authorization or a grant strategy to obtain tokens, and neither was given.');
+            $strategy = $grantStrategy;
+        }
+
         $this->resource = new ResourceIdentifier($resource);
         $this->client = $client;
         $this->coordinator = new AuthorizationCoordinator(
@@ -71,7 +84,8 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             new MetadataDiscovery($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),
             new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $this->options->timeout, $this->options->allowInsecureLoopback),
             new TokenEndpoint($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),
-            $userAuthorization,
+            $this->client,
+            $strategy,
             $tokens ?? new InMemoryTokenStore(),
             $this->options,
             $this->logger,

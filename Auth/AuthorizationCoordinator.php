@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
 use Amp\Future;
+use Amp\Http\Client\DelegateHttpClient;
 use Amp\Sync\LocalSemaphore;
 use Amp\Sync\Lock;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
@@ -31,8 +32,8 @@ use Revolt\EventLoop\FiberLocal;
 use function Amp\async;
 
 /**
- * Runs the OAuth 2.1 flow end to end for one MCP server: discovery, client registration, the user-agent round
- * trip, and the token exchange, then holds the resulting token for reuse.
+ * Runs the OAuth 2.1 flow end to end for one MCP server: discovery, the grant the configured strategy runs,
+ * and holding the resulting token for reuse.
  *
  * Everything that writes the token runs one at a time, so concurrent callers put the resource owner in front
  * of at most one consent screen.
@@ -77,7 +78,8 @@ final class AuthorizationCoordinator
         private readonly MetadataDiscovery $discovery,
         private readonly ClientRegistrar $registrar,
         private readonly TokenEndpoint $tokenEndpoint,
-        private readonly UserAuthorizationInterface $userAuthorization,
+        private readonly DelegateHttpClient $httpClient,
+        private readonly GrantStrategyInterface $strategy,
         private readonly TokenStoreInterface $tokens,
         private readonly AuthorizationOptions $options,
         private readonly LoggerInterface $logger = new NullLogger(),
@@ -234,33 +236,22 @@ final class AuthorizationCoordinator
         $discovered = $this->discover($challenge, $cancellation);
         $server = $discovered->server;
 
-        $registration = $this->registrar->resolve($server, $this->options, $cancellation);
-        $scopes = $this->selectScopes($challenge, $discovered, $additionalScopes);
-
-        $redirect = AuthorizationRequest::build(
-            $server,
-            $registration->clientId,
-            $this->options->redirectUri,
+        $context = new GrantContext(
+            $discovered,
             $this->resource,
-            $scopes,
-            $this->options->allowInsecureLoopback,
+            $this->selectScopes($challenge, $discovered, $additionalScopes),
+            $this->options,
+            $this->registrar,
+            $this->tokenEndpoint,
+            $this->httpClient,
+            $this->logger,
         );
 
-        $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect, $cancellation));
-
         try {
-            $token = $this->tokenEndpoint->exchangeCode(
-                $server,
-                $registration,
-                $redirect,
-                $code,
-                $this->options->redirectUri,
-                $this->resource,
-                $cancellation,
-            );
+            $token = $this->strategy->grant($context, $cancellation);
         } catch (ClientRegistrationRejectedException $e) {
-            // The authorization code is bound to the identifier that is spent, so this grant cannot be
-            // salvaged. Dropping the registration is what stops the next one from presenting it again.
+            // The grant is bound to the identifier that is spent, so it cannot be salvaged. Dropping the
+            // registration is what stops the next one from presenting it again.
             $this->registrar->forget($server->issuer);
 
             throw $e;
@@ -306,7 +297,7 @@ final class AuthorizationCoordinator
     private function prepareToken(AccessToken $token, Cancellation $cancellation): ?AccessToken
     {
         try {
-            $server = $this->discover(null, $cancellation)->server;
+            $discovered = $this->discover(null, $cancellation);
         } catch (McpExceptionInterface $e) {
             // Reaching no metadata says nothing about the token. Answering `null` sends the request bare,
             // and the challenge it draws is what re-authorization needs anyway.
@@ -317,6 +308,8 @@ final class AuthorizationCoordinator
 
             return null;
         }
+
+        $server = $discovered->server;
 
         // A token minted by a server the resource has since moved off cannot be renewed at the new one, and
         // must not be presented to it either. Its scopes go with it: they were granted elsewhere.
@@ -334,6 +327,19 @@ final class AuthorizationCoordinator
 
         if (! self::hasExpired($token)) {
             return $token;
+        }
+
+        // An unattended grant is renewed here and now, whether or not a refresh token came with it: sending
+        // the request bare would only draw a challenge whose answer is the very same grant, and the
+        // registration a refresh resolves is never the one such a strategy authenticates with. The lock is
+        // already held, so the rerun cannot race another caller.
+        if ($this->strategy->renewsByFreshGrant()) {
+            $this->giveUpOnToken();
+            // The grant reuses the discovery that just confirmed this token's issuer. Discovering again
+            // without a challenge cannot reach a resource document that only a challenge names.
+            $this->discovered = $discovered;
+
+            return $this->runAuthorization(null, new ScopeSet(), $cancellation);
         }
 
         if (null === $token->refreshToken) {
