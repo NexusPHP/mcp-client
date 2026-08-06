@@ -233,8 +233,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
                     return;
                 }
 
-                // The wrapper died without reporting a status. No test drives this: POSIX resolves an
-                // empty status pipe to 0, and CI runs no Windows job.
+                // The wrapper died without reporting a status.
                 $exitCode = null; // @codeCoverageIgnore
             }
 

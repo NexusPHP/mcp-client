@@ -101,10 +101,8 @@ final class AuthorizationCoordinator
         }
 
         // A token read back from a store may have been minted by a server the resource has since moved off,
-        // and the spec forbids presenting it to the new one. Discovery is what tells the two apart, so it
-        // runs before the token is ever sent rather than after the request it would ride on. A store shared
-        // with another process can hand this one a token discovery never saw, so the issuer is compared here
-        // and not merely once at the grant.
+        // and the spec forbids presenting it to the new one. A store shared with another process can hand
+        // this one a token discovery never saw, so the issuer is compared here and not once at the grant.
         if ($this->discovered?->server->issuer === $token->issuer && ! self::hasExpired($token)) {
             return $token;
         }
@@ -329,8 +327,7 @@ final class AuthorizationCoordinator
             return $token;
         }
 
-        // An unattended grant is renewed here and now, whether or not a refresh token came with it: sending
-        // the request bare would only draw a challenge whose answer is the very same grant, and the
+        // An unattended grant is renewed here and now, whether or not a refresh token came with it: the
         // registration a refresh resolves is never the one such a strategy authenticates with. The lock is
         // already held, so the rerun cannot race another caller.
         if ($this->strategy->renewsByFreshGrant()) {

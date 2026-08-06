@@ -101,8 +101,8 @@ final class RequestDeadline
             $this->expiry->cancel();
         });
 
-        // A deadline bounds work rather than being work, so it must never be what keeps the loop alive.
-        // Were it referenced, one that outlived its request would hold the loop open until it fired.
+        // A deadline bounds work rather than being work: a referenced timer outliving its request would
+        // hold the loop open until it fired.
         EventLoop::unreference($callbackId);
 
         return $callbackId;

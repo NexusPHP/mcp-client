@@ -224,10 +224,8 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         try {
             $response->getBody()->buffer($cancellation, limit: self::MAX_CHALLENGE_BODY_BYTES);
         } catch (HttpException|StreamException) {
-            // Losing the body of a challenge is never a reason to abandon the recovery it asked for. This
-            // covers the oversized case, a connection that dies partway through it, and a body the server
-            // framed so badly that the parser gives up on it. A cancellation propagates instead: the
-            // caller stopped waiting, and the recovery goes with it.
+            // Losing the body of a challenge is never a reason to abandon the recovery it asked for. A
+            // cancellation propagates instead: the caller stopped waiting, and the recovery goes with it.
         }
     }
 

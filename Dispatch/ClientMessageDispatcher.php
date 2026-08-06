@@ -120,7 +120,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             );
 
             // A client sends no JSON-RPC responses, so whatever shape the envelope arrived in it has no
-            // reply to offer. The server answers this case per §5.
+            // reply to offer.
             return;
         } catch (AbstractJsonRpcProtocolException $e) {
             if ($isNotification) {

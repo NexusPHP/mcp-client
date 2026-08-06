@@ -93,7 +93,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
      * @param int                                        $maxRestarts   Respawns allowed within one window before giving up.
      * @param float                                      $restartDelay  Seconds to wait before each respawn.
      * @param float                                      $restartWindow Seconds the restart count is measured over.
-     * @param null|\Closure(): float                     $clock         Reads the current time in **seconds**, replaceable so the window boundary is exact under test. A source in other units silently makes the budget unspendable.
+     * @param null|\Closure(): float                     $clock         Reads the current time in **seconds**. A source in other units silently makes the budget unspendable.
      */
     public function __construct(
         private readonly \Closure $factory,
@@ -283,9 +283,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         $now = ($this->clock)();
 
         // Counted over a moving window, so a peer that ran for a while and then died starts a fresh
-        // budget. Treating a served message as proof of health cannot work: the protocol layer replays
-        // its own state on every reconnect, so even a crash-looping peer answers something.
-        // The window opens at the first restart rather than at whatever the clock's origin happens to be:
+        // budget. The window opens at the first restart rather than at whatever the clock's origin happens to be:
         // a monotonic source legitimately starts near zero, which would anchor it before the process ran.
         if (0 === $this->restarts || $this->restartWindow < $now - $this->windowStartedAt) {
             $this->restarts = 0;
@@ -320,7 +318,6 @@ final class SupervisedTransport implements ReconnectingTransportInterface
 
         $this->retireConnection();
 
-        // Retiring suspends on any transport that drains on the way down, so a close can land inside it.
         // Arming now would resurrect a peer the caller has already been told is never coming, and nothing
         // afterwards would ever close it.
         if (TransportState::Running !== $this->state) {

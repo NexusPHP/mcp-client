@@ -176,8 +176,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             }
 
             // Only its own entry: an id already re-sent belongs to a later exchange, and evicting that
-            // one would cancel it through the destructor. Leaving an entry behind instead would grow the
-            // map for the transport's life.
+            // one would cancel it through the destructor.
             if (null !== $requestId) {
                 $key = self::buildKey($requestId);
 

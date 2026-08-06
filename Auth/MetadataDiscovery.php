@@ -157,9 +157,7 @@ final readonly class MetadataDiscovery
             return HttpStatus::Ok->value === $status ? JsonHttpExchange::decode($payload, $label) : null;
         } catch (\InvalidArgumentException|MalformedAuthorizationResponseException|RedirectRefusedException|ResponseTooLargeException) {
             // The spec fixes an order of candidates to fall back through, so nothing one of them answers
-            // ends the search. A body too large to read, a payload that is not a JSON object, an answer
-            // from a URL other than the one asked, and a peer-supplied URL built out of bytes no URI may
-            // carry all leave the candidates after it their turn.
+            // ends the search.
             return null;
         }
     }

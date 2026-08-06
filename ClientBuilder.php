@@ -333,7 +333,6 @@ final class ClientBuilder
         ];
         $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
             $progressListeners,
-            // register the custom progress handler as fallback
             $notificationHandlers[ProgressNotification::getMethod()] ?? null,
         );
 
