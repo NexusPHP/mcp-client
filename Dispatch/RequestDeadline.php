@@ -32,7 +32,7 @@ final class RequestDeadline
     /**
      * Seconds the deadline that fired was measuring, or `0.0` while none has.
      */
-    public private(set) float $elapsed = 0.0;
+    private float $elapsed = 0.0;
 
     private bool $fired = false;
     private readonly DeferredCancellation $expiry;
@@ -57,6 +57,14 @@ final class RequestDeadline
     public function getCancellation(): Cancellation
     {
         return $this->expiry->getCancellation();
+    }
+
+    /**
+     * Seconds the deadline that fired was measuring, or `0.0` while none has.
+     */
+    public function readElapsed(): float
+    {
+        return $this->elapsed;
     }
 
     /**

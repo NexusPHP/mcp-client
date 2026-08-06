@@ -10,7 +10,7 @@
         }
     ],
     "require": {
-        "php": "^8.4",
+        "php": "^8.3",
         "amphp/amp": "^3.1",
         "amphp/byte-stream": "^2.1",
         "amphp/http-client": "^5.0",

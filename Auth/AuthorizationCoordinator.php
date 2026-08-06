@@ -167,7 +167,7 @@ final class AuthorizationCoordinator
             if (null !== $this->discovered
                 && null !== $current
                 && $current->value !== $presented?->value
-                && new ScopeSet($current->scopes)->containsAll($additionalScopes)
+                && (new ScopeSet($current->scopes))->containsAll($additionalScopes)
             ) {
                 return $current;
             }

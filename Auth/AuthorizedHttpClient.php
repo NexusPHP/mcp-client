@@ -156,7 +156,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 // Granting again would produce the same token and the same answer, so the only thing another
                 // round buys is a second consent screen. What settles that is the token this attempt
                 // presented: what the client was granted at some point says nothing about what it holds now.
-                if (new ScopeSet($token->scopes ?? [])->containsAll($challenged)) {
+                if ((new ScopeSet($token->scopes ?? []))->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
                         'scopes' => $challenged->toParameter() ?? 'no scope at all',

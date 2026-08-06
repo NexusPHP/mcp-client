@@ -1033,7 +1033,7 @@ final class Client
             );
         }
 
-        return new RequestTimeoutException($request->id, $deadline->elapsed, $cause);
+        return new RequestTimeoutException($request->id, $deadline->readElapsed(), $cause);
     }
 
     /**
