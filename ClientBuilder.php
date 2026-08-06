@@ -121,7 +121,12 @@ final class ClientBuilder
     }
 
     /**
-     * @param null|list<Icon> $icons
+     * @param non-empty-string      $name
+     * @param non-empty-string      $version
+     * @param null|non-empty-string $title
+     * @param null|non-empty-string $description
+     * @param null|non-empty-string $websiteUrl
+     * @param null|list<Icon>       $icons
      */
     public function setClientInfo(
         string $name,
