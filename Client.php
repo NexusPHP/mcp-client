@@ -470,6 +470,7 @@ final class Client
     }
 
     /**
+     * @param non-empty-string                  $uri            The resource URI, held to the RFC 3986 absolute-URI shape the spec's `format: uri` fixes
      * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
      * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
