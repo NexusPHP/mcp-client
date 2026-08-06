@@ -62,7 +62,6 @@ final class StdioClientTransport implements SupervisableTransportInterface
     ];
 
     private readonly LineDuplex $duplex;
-    private readonly LoggerInterface $logger;
     private ?Process $process = null;
 
     /**
@@ -84,13 +83,12 @@ final class StdioClientTransport implements SupervisableTransportInterface
         private readonly array $command,
         private readonly ?string $workingDirectory = null,
         private readonly ?array $env = null,
-        LoggerInterface $logger = new NullLogger(),
+        private readonly LoggerInterface $logger = new NullLogger(),
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
     ) {
         Assert::that($command)->isList(\sprintf('%s command must be a list, {type} given.', self::LABEL));
         Assert::that(\count($command))->isPositiveInt(\sprintf('%s command must not be empty.', self::LABEL));
 
-        $this->logger = $logger;
         $this->duplex = new LineDuplex(
             hostTransport: self::class,
             label: self::LABEL,

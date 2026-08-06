@@ -47,7 +47,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     private const int MAX_CHALLENGE_BODY_BYTES = 8192;
 
     private readonly ResourceIdentifier $resource;
-    private readonly DelegateHttpClient $client;
     private readonly AuthorizationCoordinator $coordinator;
 
     /**
@@ -62,7 +61,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         string $resource,
         private readonly AuthorizationOptions $options,
         ?UserAuthorizationInterface $userAuthorization,
-        DelegateHttpClient $client,
+        private readonly DelegateHttpClient $client,
         ?TokenStoreInterface $tokens = null,
         ?ClientRegistrationStoreInterface $registrations = null,
         private readonly LoggerInterface $logger = new NullLogger(),
@@ -78,7 +77,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         }
 
         $this->resource = new ResourceIdentifier($resource);
-        $this->client = $client;
         $this->coordinator = new AuthorizationCoordinator(
             $this->resource,
             new MetadataDiscovery($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),

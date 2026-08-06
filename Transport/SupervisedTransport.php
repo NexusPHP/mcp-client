@@ -46,7 +46,6 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     private const string LABEL = 'Supervised client';
 
     private readonly TransportEvents $events;
-    private readonly LoggerInterface $logger;
 
     /**
      * @var \Closure(): float
@@ -100,7 +99,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         private readonly \Closure $factory,
         private readonly int $maxRestarts = 3,
         private readonly float $restartDelay = 0.1,
-        LoggerInterface $logger = new NullLogger(),
+        private readonly LoggerInterface $logger = new NullLogger(),
         private readonly float $restartWindow = self::DEFAULT_RESTART_WINDOW,
         ?\Closure $clock = null,
     ) {
@@ -108,7 +107,6 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         Assert::that($restartDelay)->isBetween(0.0, \PHP_FLOAT_MAX, message: 'restartDelay must not be negative, {value} given.');
         Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
 
-        $this->logger = $logger;
         $this->clock = $clock ?? static fn(): float => microtime(true);
         $this->events = new TransportEvents();
     }
