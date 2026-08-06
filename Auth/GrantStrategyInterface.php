@@ -18,8 +18,6 @@ use Amp\Cancellation;
 /**
  * How the client obtains an access token once discovery has run: the authorization-code round trip through
  * a user agent, or an unattended machine grant.
- *
- * @internal
  */
 interface GrantStrategyInterface
 {

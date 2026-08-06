@@ -241,10 +241,10 @@ final class AuthorizationCoordinator
             $this->resource,
             $this->selectScopes($challenge, $discovered, $additionalScopes),
             $this->options,
-            $this->registrar,
-            $this->tokenEndpoint,
             $this->httpClient,
             $this->logger,
+            $this->registrar,
+            $this->tokenEndpoint,
         );
 
         try {

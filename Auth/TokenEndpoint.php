@@ -68,24 +68,6 @@ final readonly class TokenEndpoint
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
-    public function exchangeCode(
-        AuthorizationServerMetadata $metadata,
-        ClientRegistration $registration,
-        AuthorizationRedirect $redirect,
-        string $code,
-        string $redirectUri,
-        ResourceIdentifier $resource,
-        Cancellation $cancellation,
-    ): AccessToken {
-        return $this->send($metadata, $registration, [
-            'grant_type' => 'authorization_code',
-            'code' => $code,
-            'redirect_uri' => $redirectUri,
-            'code_verifier' => $redirect->pkce->verifier,
-            'resource' => $resource->value,
-        ], $redirect->requestedScopes, null, $cancellation);
-    }
-
     public function refresh(
         AuthorizationServerMetadata $metadata,
         ClientRegistration $registration,

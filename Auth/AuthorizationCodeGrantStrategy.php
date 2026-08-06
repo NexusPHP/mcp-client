@@ -36,11 +36,10 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
         $redirectUri = $context->options->redirectUri;
         Assert::that($redirectUri)->isNonEmptyString('The authorization-code grant needs a redirect URI, and the authorization options carry none.');
 
-        $server = $context->discovered->server;
-        $registration = $context->registrar->resolve($server, $context->options, $cancellation);
+        $registration = $context->resolveRegistration($cancellation);
 
         $redirect = AuthorizationRequest::build(
-            $server,
+            $context->discovered->server,
             $registration->clientId,
             $redirectUri,
             $context->resource,
@@ -48,16 +47,22 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
             $context->options->allowInsecureLoopback,
         );
 
-        $code = AuthorizationResponse::readCode($redirect, $this->userAuthorization->authorize($redirect, $cancellation));
-
-        return $context->tokenEndpoint->exchangeCode(
-            $server,
-            $registration,
+        $code = AuthorizationResponse::readCode(
             $redirect,
-            $code,
-            $redirectUri,
-            $context->resource,
+            $this->userAuthorization->authorize($redirect, $cancellation),
+        );
+
+        return $context->requestToken(
+            $registration,
+            [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => $redirectUri,
+                'code_verifier' => $redirect->pkce->verifier,
+                'resource' => $context->resource->value,
+            ],
             $cancellation,
+            $redirect->requestedScopes,
         );
     }
 
