@@ -34,7 +34,7 @@ final readonly class JsonHttpExchange
     /**
      * Bytes of an answer buffered before the endpoint is treated as unusable.
      */
-    public const int MAX_RESPONSE_BYTES = 65536;
+    public const int MAX_RESPONSE_BYTES = 65_536;
 
     public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
     {

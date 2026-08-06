@@ -44,7 +44,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     /**
      * Bytes of a challenge body drained before the connection carrying it is given up on instead.
      */
-    private const int MAX_CHALLENGE_BODY_BYTES = 8192;
+    private const int MAX_CHALLENGE_BODY_BYTES = 8_192;
 
     private readonly ResourceIdentifier $resource;
     private readonly AuthorizationCoordinator $coordinator;
