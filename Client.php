@@ -501,7 +501,7 @@ final class Client
     }
 
     /**
-     * @param non-empty-string                  $name           The prompt name, held to the MCP identifier set
+     * @param non-empty-string                  $name           The prompt name, exactly as the server listed it
      * @param null|array<string, string>        $arguments
      * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
      * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
@@ -570,7 +570,7 @@ final class Client
      * answers plus the `requestState` it carried, which is opaque and must be
      * echoed back unchanged.
      *
-     * @param non-empty-string                                                      $name           The tool name, held to the MCP identifier set
+     * @param non-empty-string                                                      $name           The tool name, exactly as the server listed it
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      * @param null|array<string, InputResponse>                                     $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
