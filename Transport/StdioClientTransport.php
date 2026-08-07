@@ -15,7 +15,6 @@ namespace Nexus\Mcp\Client\Transport;
 
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
-use Amp\Process\Process;
 use Amp\Process\ProcessException;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Core\JsonRpc\SafeDisplay;
@@ -62,11 +61,11 @@ final class StdioClientTransport implements SupervisableTransportInterface
     ];
 
     private readonly LineDuplex $duplex;
-    private ?Process $process = null;
+    private ?SubprocessInterface $process = null;
 
     /**
-     * Bounds the exit watch. `Process::join()` references the event loop while it awaits, so an
-     * unbounded watch would hold the loop open for the lifetime of the subprocess.
+     * Bounds the exit watch. `SubprocessInterface::join()` references the event loop while it awaits,
+     * so an unbounded watch would hold the loop open for the lifetime of the subprocess.
      */
     private ?DeferredCancellation $exitWatch = null;
 
@@ -85,6 +84,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
         private readonly ?array $env = null,
         private readonly LoggerInterface $logger = new NullLogger(),
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
+        private readonly SubprocessLauncherInterface $launcher = new AmpSubprocessLauncher(),
     ) {
         Assert::that($command)->isList(\sprintf('%s command must be a list, {type} given.', self::LABEL));
         Assert::that(\count($command))->isPositiveInt(\sprintf('%s command must not be empty.', self::LABEL));
@@ -141,7 +141,11 @@ final class StdioClientTransport implements SupervisableTransportInterface
     #[\Override]
     public function start(): void
     {
-        $process = Process::start($this->command, $this->workingDirectory, $this->env ?? self::buildDefaultEnvironment());
+        $process = $this->launcher->launch(
+            $this->command,
+            $this->workingDirectory,
+            $this->env ?? self::buildDefaultEnvironment(),
+        );
 
         try {
             $this->duplex->start($process->getStdout(), $process->getStdin());
@@ -220,7 +224,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
      * Reports an exit nobody asked for. `close()` cancels the watch, so a requested shutdown settles
      * it without reaching the listeners.
      */
-    private function watchForExit(Process $process): void
+    private function watchForExit(SubprocessInterface $process): void
     {
         $this->exitWatch = new DeferredCancellation();
         $cancellation = $this->exitWatch->getCancellation();
@@ -234,7 +238,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
                 }
 
                 // The wrapper died without reporting a status.
-                $exitCode = null; // @codeCoverageIgnore
+                $exitCode = null;
             }
 
             $this->logger->warning(
