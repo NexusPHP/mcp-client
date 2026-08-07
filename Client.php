@@ -64,7 +64,7 @@ use Nexus\Mcp\Core\Schema\RequestParams\CallToolRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\CompleteRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\EmptyRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\GetPromptRequestParams;
-use Nexus\Mcp\Core\Schema\RequestParams\InputResponseRequestParams;
+use Nexus\Mcp\Core\Schema\RequestParams\InputResponseCarrierInterface;
 use Nexus\Mcp\Core\Schema\RequestParams\PaginatedRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\ReadResourceRequestParams;
 use Nexus\Mcp\Core\Schema\RequestParams\SubscriptionsListenRequestParams;
@@ -726,13 +726,11 @@ final class Client
      */
     private static function resumesAnEarlierRound(?RequestParamsInterface $params): bool
     {
-        [$inputResponses, $requestState] = match (true) {
-            $params instanceof InputResponseRequestParams => [$params->inputResponses, $params->requestState],
-            $params instanceof ReadResourceRequestParams => [$params->inputResponses, $params->requestState],
-            default => [null, null],
-        };
+        if (! $params instanceof InputResponseCarrierInterface) {
+            return false;
+        }
 
-        return null !== $inputResponses || null !== $requestState;
+        return $params->getInputResponses() !== null || $params->getRequestState() !== null;
     }
 
     /**
