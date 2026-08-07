@@ -16,7 +16,10 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\ByteStream\StreamException;
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
+use Amp\Http\Client\HttpClientBuilder;
 use Amp\Http\Client\HttpException;
+use Amp\Http\Client\Interceptor\FollowRedirects;
+use Amp\Http\Client\Interceptor\TooManyRedirectsException;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Nexus\Assert\Assert;
@@ -46,13 +49,20 @@ final class AuthorizedHttpClient implements DelegateHttpClient
      */
     private const int MAX_CHALLENGE_BODY_BYTES = 8_192;
 
+    /**
+     * Matches the redirect budget `HttpClientBuilder::buildDefault()` applies to uncredentialed traffic.
+     */
+    private const int MAX_REDIRECTS = 10;
+
     private readonly ResourceIdentifier $resource;
     private readonly AuthorizationCoordinator $coordinator;
+    private readonly DelegateHttpClient $client;
+    private readonly DelegateHttpClient $sealedClient;
 
     /**
      * @param string                                $resource          Absolute URL of the MCP endpoint this client talks to
      * @param null|UserAuthorizationInterface       $userAuthorization Puts the resource owner in front of the authorization server on the authorization-code grant. `null` when a grant strategy runs instead
-     * @param DelegateHttpClient                    $client            Inner client, which carries the authorization traffic as well as the MCP traffic
+     * @param HttpClientBuilder                     $clientBuilder     Builds the inner clients. Credentialed traffic runs on a derived client that never follows a redirect, so a hop can be refused before the credential travels
      * @param null|TokenStoreInterface              $tokens            Defaults to a store that lives only as long as the process
      * @param null|ClientRegistrationStoreInterface $registrations     Defaults to a store that lives only as long as the process
      * @param null|GrantStrategyInterface           $grantStrategy     An unattended grant run in place of the authorization-code round trip
@@ -61,7 +71,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         string $resource,
         private readonly AuthorizationOptions $options,
         ?UserAuthorizationInterface $userAuthorization,
-        private readonly DelegateHttpClient $client,
+        HttpClientBuilder $clientBuilder,
         ?TokenStoreInterface $tokens = null,
         ?ClientRegistrationStoreInterface $registrations = null,
         private readonly LoggerInterface $logger = new NullLogger(),
@@ -77,12 +87,24 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         }
 
         $this->resource = new ResourceIdentifier($resource);
+
+        // Metadata is public, so following a redirect to it leaks nothing. Everything that carries a
+        // credential runs on the sealed client instead, which hands a 3xx back rather than replaying the
+        // request against wherever it points.
+        $this->client = $clientBuilder->build();
+        $this->sealedClient = $clientBuilder->followRedirects(0)->build();
+
         $this->coordinator = new AuthorizationCoordinator(
             $this->resource,
             new MetadataDiscovery($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),
-            new ClientRegistrar($this->client, $registrations ?? new InMemoryClientRegistrationStore(), $this->options->timeout, $this->options->allowInsecureLoopback),
-            new TokenEndpoint($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),
-            $this->client,
+            new ClientRegistrar(
+                $this->sealedClient,
+                $registrations ?? new InMemoryClientRegistrationStore(),
+                $this->options->timeout,
+                $this->options->allowInsecureLoopback,
+            ),
+            new TokenEndpoint($this->sealedClient, $this->options->timeout, $this->options->allowInsecureLoopback),
+            $this->sealedClient,
             $strategy,
             $tokens ?? new InMemoryTokenStore(),
             $this->options,
@@ -104,14 +126,12 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         while (true) {
             $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
             $attempt = self::authorizeRequest($request, $token);
-            $response = $this->client->request($attempt, $cancellation);
-            $strayed = null === $token ? null : $this->findHopOffOrigin($response);
-
-            if (null !== $strayed) {
-                self::drain($response, $cancellation);
-
-                throw new RedirectRefusedException((string) $attempt->getUri(), $strayed);
-            }
+            // Control of the hops belongs to this origin, not to whether a token happened to be ready.
+            // The bare first request carries whatever headers the caller set, and the challenge it comes
+            // back with steers the grant, so both need the same seal.
+            $response = $bearsToken
+                ? $this->followWithinOrigin($attempt, $cancellation)
+                : $this->client->request($attempt, $cancellation);
 
             if (! $bearsToken) {
                 // A challenge from anywhere but this MCP server steers nothing here. Its scopes would reach
@@ -185,24 +205,94 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     }
 
     /**
-     * The URL of the hop that left this MCP server's origin, walking a redirect chain back from the answer,
-     * or `null` when every hop stayed on it.
+     * Sends a credentialed request, resolving redirects here rather than letting the client replay the
+     * credential wherever a `Location` points. An origin carries its scheme, so a downgrade to cleartext is
+     * a hop off origin like any other and is refused before anything travels.
      *
-     * An HTTP client that follows redirects strips credentials only when the authority changes, and an
-     * authority carries no scheme, so a hop from HTTPS to cleartext on the same host takes the bearer token
-     * with it. Checking only where the chain ended would miss exactly that hop.
+     * @throws RedirectRefusedException
      */
-    private function findHopOffOrigin(Response $response): ?string
+    private function followWithinOrigin(Request $request, Cancellation $cancellation): Response
     {
-        for ($hop = $response; null !== $hop; $hop = $hop->getPreviousResponse()) {
-            $url = (string) $hop->getRequest()->getUri();
+        $origin = (string) $request->getUri();
+        $previous = null;
+        $response = null;
 
-            if (! $this->resource->sharesOriginWith($url)) {
-                return $url;
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; ++$hop) {
+            $response = $this->sealedClient->request($request, $cancellation);
+            $response->setPreviousResponse($previous);
+            $location = self::readRedirectTarget($response, $request);
+
+            if (null === $location) {
+                return $response;
             }
+
+            if (! $this->resource->sharesOriginWith($location)) {
+                self::drain($response, $cancellation);
+
+                throw new RedirectRefusedException($origin, $location);
+            }
+
+            self::drain($response, $cancellation);
+            $previous = $response;
+            $request = self::cloneForRedirect($request, $location);
         }
 
-        return null;
+        \assert($response instanceof Response);
+
+        throw new TooManyRedirectsException($response);
+    }
+
+    /**
+     * Resolves a redirect answer's target against the request that produced it, or `null` when the answer
+     * is not a redirect.
+     */
+    private static function readRedirectTarget(Response $response, Request $request): ?string
+    {
+        $status = $response->getStatus();
+
+        // The rules `FollowRedirects` applies, so sealing the client changes which client resolves a hop
+        // rather than which answers count as one. A 307 or 308 preserves the method, which the spec forbids
+        // replaying without asking, so neither is followed for anything but a GET.
+        if (! \in_array($status, [301, 302, 303, 307, 308], true)) {
+            return null;
+        }
+
+        if ($request->getMethod() !== 'GET' && \in_array($status, [307, 308], true)) {
+            return null;
+        }
+
+        if (\count($response->getHeaderArray('location')) !== 1) {
+            return null;
+        }
+
+        $location = $response->getHeader('location');
+        \assert(null !== $location);
+
+        try {
+            // `Request` parses the target with the same URI implementation the client uses, and its own
+            // resolver settles a relative one, so a sealed hop lands where an unsealed one would.
+            $target = new Request($location);
+        } catch (\Exception) {
+            return null;
+        }
+
+        return (string) FollowRedirects::resolve($request->getUri(), $target->getUri());
+    }
+
+    /**
+     * Rewrites a request for its redirect target: the hop is a GET carrying none of the body framing the
+     * original had. No `Referer` is added, where the client's own follower would.
+     */
+    private static function cloneForRedirect(Request $request, string $location): Request
+    {
+        $redirected = clone $request;
+        $redirected->setUri($location);
+        $redirected->setMethod('GET');
+        $redirected->removeHeader('transfer-encoding');
+        $redirected->removeHeader('content-length');
+        $redirected->removeHeader('content-type');
+
+        return $redirected;
     }
 
     /**
