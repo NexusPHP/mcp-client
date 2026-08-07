@@ -261,12 +261,13 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             return null;
         }
 
-        if (\count($response->getHeaderArray('location')) !== 1) {
+        $locations = $response->getHeaderArray('location');
+
+        if (\count($locations) !== 1) {
             return null;
         }
 
-        $location = $response->getHeader('location');
-        \assert(null !== $location);
+        $location = $locations[0];
 
         try {
             // `Request` parses the target with the same URI implementation the client uses, and its own
