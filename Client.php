@@ -290,9 +290,11 @@ final class Client
         $transport = $this->transport;
         $this->transport = null;
 
-        // The cached bindings describe the server that just went away, so a later connection must not
-        // mirror headers from them.
+        // Everything cached here describes the server that just went away, so a later connection must not
+        // mirror its headers, answer for its identity, or gate on what it advertised.
         $this->toolHeaderBindings = [];
+        $this->serverInfo = null;
+        $this->serverCapabilities->record(null);
 
         // Settled before the close, so a supervised transport cannot answer the peer loss it is about to
         // see by re-opening streams, or re-sending requests, the caller has just given up.
@@ -305,8 +307,8 @@ final class Client
 
     /**
      * The server's `Implementation` block from the last `server/discover`
-     * response `_meta`, or `null` if discovery has not run or the server did
-     * not identify itself.
+     * response `_meta`, or `null` if discovery has not run since the last
+     * `disconnect()` or the server did not identify itself.
      */
     public function getServerInfo(): ?Implementation
     {
@@ -315,7 +317,7 @@ final class Client
 
     /**
      * The server's capabilities from the last `server/discover` response, or
-     * `null` if discovery has not run.
+     * `null` if discovery has not run since the last `disconnect()`.
      */
     public function getServerCapabilities(): ?ServerCapabilities
     {
