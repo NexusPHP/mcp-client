@@ -472,9 +472,9 @@ final class Client
     }
 
     /**
-     * @param non-empty-string                  $uri            The resource URI, held to the RFC 3986 absolute-URI shape the spec's `format: uri` fixes
-     * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
-     * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     * @param non-empty-string                                $uri            The resource URI, held to the RFC 3986 absolute-URI shape the spec's `format: uri` fixes
+     * @param null|array<int|non-empty-string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|string                                     $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -501,10 +501,10 @@ final class Client
     }
 
     /**
-     * @param non-empty-string                  $name           The prompt name, exactly as the server listed it
-     * @param null|array<string, string>        $arguments
-     * @param null|array<string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
-     * @param null|string                       $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     * @param non-empty-string                                $name           The prompt name, exactly as the server listed it
+     * @param null|array<string, string>                      $arguments
+     * @param null|array<int|non-empty-string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|string                                     $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -573,7 +573,7 @@ final class Client
      * @param non-empty-string                                                      $name           The tool name, exactly as the server listed it
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
-     * @param null|array<string, InputResponse>                                     $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
+     * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
      * @param null|string                                                           $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
      * @throws ClientNotConnectedException
@@ -783,7 +783,7 @@ final class Client
      * @param non-empty-string                                                      $name
      * @param null|array<string, mixed>                                             $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
-     * @param null|array<string, InputResponse>                                     $inputResponses
+     * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses
      */
     private function attemptToolCall(
         string $name,
