@@ -122,6 +122,11 @@ final class Client
     public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
 
     /**
+     * Pages a header-binding refresh may walk. Every page is answered, so no deadline bounds the walk.
+     */
+    private const int MAX_HEADER_REFRESH_PAGES = 100;
+
+    /**
      * The requests a lost call may be sent again as. A retry is at-least-once, because the peer may have
      * carried the work out before it died, so only requests that read state are eligible. The spec marks
      * no tool as idempotent, which keeps `tools/call` off the list however harmless a given tool is, and
@@ -758,23 +763,53 @@ final class Client
 
     /**
      * Re-lists the named tool so its cached `x-mcp-header` bindings match the server's current
-     * `inputSchema`, walking pages until the listing yields it or runs out of them.
+     * `inputSchema`. Gives up on a cursor it has already followed or at the page ceiling, forgetting
+     * the stale bindings so the retry goes out unmirrored rather than with the header just rejected.
      */
     private function refreshToolHeaderBindings(string $name): void
     {
+        // `listTools()` caches bindings only for a mirroring transport, so for any other one the walk
+        // provably changes nothing and is pure round trips.
+        if (! $this->transport instanceof ParameterHeaderMirroringInterface) {
+            return;
+        }
+
         $cursor = null;
+        $seen = [];
 
-        do {
-            $page = $this->listTools($cursor);
+        for ($page = 1; $page <= self::MAX_HEADER_REFRESH_PAGES; ++$page) {
+            $result = $this->listTools($cursor);
 
-            foreach ($page->tools as $tool) {
+            foreach ($result->tools as $tool) {
                 if ($tool->name === $name) {
                     return;
                 }
             }
 
-            $cursor = $page->nextCursor;
-        } while (null !== $cursor);
+            $cursor = $result->nextCursor;
+
+            if (null === $cursor) {
+                return;
+            }
+
+            if (isset($seen[$cursor->cursor])) {
+                unset($this->toolHeaderBindings[$name]);
+                $this->logger->warning(
+                    'Server sent cursor {cursor} again while re-listing tool {tool}, first seen on page {page}, so the refresh stopped.',
+                    ['cursor' => $cursor->cursor, 'tool' => $name, 'page' => $seen[$cursor->cursor]],
+                );
+
+                return;
+            }
+
+            $seen[$cursor->cursor] = $page;
+        }
+
+        unset($this->toolHeaderBindings[$name]);
+        $this->logger->warning(
+            'Re-listing tool {tool} passed {pages} pages without reaching it, so the refresh stopped.',
+            ['tool' => $name, 'pages' => self::MAX_HEADER_REFRESH_PAGES],
+        );
     }
 
     /**
