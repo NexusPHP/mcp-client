@@ -99,6 +99,7 @@ use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
+use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -111,8 +112,7 @@ use Revolt\EventLoop;
 final class Client
 {
     /**
-     * Seconds a request may go unanswered before it is abandoned. Each progress notification for the
-     * request restarts it.
+     * Seconds a request may go unanswered before it is abandoned.
      */
     public const float DEFAULT_REQUEST_TIMEOUT = 60.0;
 
@@ -122,15 +122,12 @@ final class Client
     public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
 
     /**
-     * Pages a header-binding refresh may walk. Every page is answered, so no deadline bounds the walk.
+     * Pages a header-binding refresh may walk, since every page is answered and no deadline bounds it.
      */
     private const int MAX_HEADER_REFRESH_PAGES = 100;
 
     /**
-     * The requests a lost call may be sent again as. A retry is at-least-once, because the peer may have
-     * carried the work out before it died, so only requests that read state are eligible. The spec marks
-     * no tool as idempotent, which keeps `tools/call` off the list however harmless a given tool is, and
-     * a vendor method sent through `sendRequest()` has no semantics this SDK can judge.
+     * The requests a lost call may be sent again as.
      */
     private const array RETRYABLE_REQUESTS = [
         CompleteRequest::class,
@@ -147,19 +144,21 @@ final class Client
     private ?Implementation $serverInfo = null;
 
     /**
-     * `x-mcp-header` bindings of every tool a `tools/list` admitted, keyed by tool name. Only a transport
-     * that mirrors parameter headers populates it.
+     * `x-mcp-header` bindings of every tool a `tools/list` admitted, keyed by tool name.
      *
      * @var array<string, list<ParameterHeaderBinding>>
      */
     private array $toolHeaderBindings = [];
 
     /**
+     * @var list<SubscriptionInterface>
+     */
+    private array $listeners = [];
+
+    /**
      * @param \Closure(): (int|non-empty-string)        $requestIdFactory
      * @param \Closure(): (int|non-empty-string)        $progressTokenFactory
-     * @param null|float                                $requestTimeout       Seconds a request may go unanswered, or `null` to wait indefinitely
-     * @param null|float                                $maxRequestTimeout    Seconds a request may run however much progress arrives, or `null` to leave it unbounded
-     * @param array<non-empty-string, non-empty-string> $extensionMethods     Outbound extension method => owning capability identifier
+     * @param array<non-empty-string, non-empty-string> $extensionMethods
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -196,30 +195,29 @@ final class Client
 
         $this->transport = $transport;
 
-        $transport->onMessage(function (array $envelope, ReceiveContext $context) use ($transport): void {
+        $this->listeners[] = $transport->onMessage(function (array $envelope, ReceiveContext $context) use ($transport): void {
             $this->dispatcher->dispatch($envelope, $transport, $context);
         });
-        $transport->onError(function (\Throwable $e): void {
+        $this->listeners[] = $transport->onError(function (\Throwable $e): void {
             if ($e instanceof OutboundRequestFailedException) {
-                // The exchange that carried this request is over, so its response can no longer arrive.
-                // A caller still awaiting one would otherwise block for the life of the process.
+                // The exchange is over, so a caller still awaiting its response would block for the life of
+                // the process.
                 $this->outboundRequests->reject($e->requestId, $e);
             }
 
             if ($e instanceof SupervisionExhaustedException) {
-                // No further peer is coming, so a stream held open across the restarts has nothing left
-                // to be re-opened against, and a retained request has nothing left to be sent to. Both
-                // would otherwise wait for the life of the process.
+                // No further peer is coming, so a held stream and a retained request would both wait for the
+                // life of the process.
                 $this->settleSubscriptions($e);
                 $this->outboundRequests->cancelAll($e);
             }
 
             $this->logger->error('Transport error.', ['exception' => $e]);
         });
-        $transport->onDrain(function (): void {
+        $this->listeners[] = $transport->onDrain(function (): void {
             $this->dispatcher->flushPending();
         });
-        $transport->onClose(function () use ($transport): void {
+        $this->listeners[] = $transport->onClose(function () use ($transport): void {
             $error = new TransportAlreadyClosedException(operation: 'await-response');
 
             // A retained request outlives the peer that was carrying it, so only the rest fail here.
@@ -229,8 +227,8 @@ final class Client
             // is only readable on the next tick.
             EventLoop::queue(function () use ($transport, $error): void {
                 if ($transport !== $this->transport) {
-                    // A transport this client has already let go of speaks for nothing that is pending
-                    // now. `disconnect()` failed what it was owed before detaching it.
+                    // `disconnect()` already failed what this transport was owed, so it speaks for nothing
+                    // pending now.
                     return;
                 }
 
@@ -238,15 +236,14 @@ final class Client
                     return;
                 }
 
-                // Nothing replaces this peer, so a retained request has run out of peers to be sent to.
-                // Streams need no help here: the close that got us this far freed their correlation
-                // slots, and each stream settles from its own failed exchange.
+                // Nothing replaces this peer, so a retained request has run out of peers while each stream
+                // settles from its own failed exchange.
                 $this->outboundRequests->cancelAll($error);
             });
         });
 
         if ($transport instanceof ReconnectingTransportInterface) {
-            $transport->onReconnect(function () use ($transport): void {
+            $this->listeners[] = $transport->onReconnect(function () use ($transport): void {
                 foreach ($this->outboundRequests->collectRetained() as $retained) {
                     $request = $retained['request'];
 
@@ -254,8 +251,8 @@ final class Client
                         $transport->send($request, $retained['context']);
                     } catch (\Throwable $e) {
                         if ($transport->isReconnecting()) {
-                            // This replacement died too. Left retained so the peer after it tries again,
-                            // matching what the subscription walk below does.
+                            // Left retained so the peer after this dead replacement tries again, matching the
+                            // subscription walk below.
                             $this->logger->warning(
                                 'Could not send request {id} again to the replacement peer.',
                                 ['id' => $request->id->id, 'exception' => $e],
@@ -287,8 +284,7 @@ final class Client
     }
 
     /**
-     * Closes the transport and detaches it so a fresh `connect()` can run.
-     * A no-op when the client is not connected.
+     * Closes the transport and detaches it so a fresh `connect()` can run, doing nothing when not connected.
      */
     public function disconnect(): void
     {
@@ -307,7 +303,17 @@ final class Client
         $this->settleSubscriptions($error);
         $this->outboundRequests->cancelAll($error);
 
-        $transport?->close();
+        // A `connect()` may land in the close's suspension window and register on the field.
+        $listeners = $this->listeners;
+        $this->listeners = [];
+
+        try {
+            $transport?->close();
+        } finally {
+            foreach ($listeners as $listener) {
+                $listener->dispose();
+            }
+        }
     }
 
     /**
@@ -351,8 +357,8 @@ final class Client
     }
 
     /**
-     * Opens a `subscriptions/listen` stream and routes every notification the server tags with its id to
-     * `$onNotification`. Returns as soon as the request is away: the stream runs until either side ends it.
+     * Opens a `subscriptions/listen` stream routing every notification tagged with its id to
+     * `$onNotification`, returning as soon as the request is away.
      *
      * @param \Closure(JsonRpcNotification<non-empty-string>): void $onNotification
      *
@@ -368,8 +374,8 @@ final class Client
         /** @var DeferredFuture<SubscriptionsListenResult> $outcome */
         $outcome = new DeferredFuture();
 
-        // Only an explicit await() observes the outcome. Left unignored, a refused subscription would
-        // surface as an unhandled future when the stream is collected.
+        // Left unignored, a refused subscription surfaces as an unhandled future when the stream is
+        // collected.
         $future = $outcome->getFuture();
         $future->ignore();
 
@@ -566,14 +572,9 @@ final class Client
     }
 
     /**
-     * Invokes a tool. When `$onProgress` is given, a fresh `progressToken` is
-     * minted into the request's `_meta` and the callback receives every
-     * matching `notifications/progress` for the duration of the call.
-     *
-     * A server that needs more input answers with an `InputRequiredResult` rather
-     * than a result. Satisfy each of its `inputRequests` and call again with the
-     * answers plus the `requestState` it carried, which is opaque and must be
-     * echoed back unchanged.
+     * Invokes a tool, minting a `progressToken` into `_meta` when `$onProgress` is given and answering with an
+     * `InputRequiredResult` whose `requestState` must be echoed back unchanged when the server needs more
+     * input.
      *
      * @param non-empty-string                                                      $name           The tool name, exactly as the server listed it
      * @param null|array<array-key, mixed>                                          $arguments
@@ -601,8 +602,8 @@ final class Client
             }
         }
 
-        // A header mismatch means the cached `inputSchema` is behind the server's, so refresh it and
-        // retry exactly once. A second mismatch is the server's answer and propagates.
+        // The cached `inputSchema` is behind the server's, so refresh and retry once before a second mismatch
+        // propagates.
         $this->refreshToolHeaderBindings($name);
 
         return $this->attemptToolCall($name, $arguments, $onProgress, $inputResponses, $requestState);
@@ -634,8 +635,8 @@ final class Client
     }
 
     /**
-     * Builds the self-describing `_meta` envelope stamped onto every typed request. Callers
-     * hand-building a request for `sendRequest()` use it to carry the same lifecycle fields.
+     * Builds the self-describing `_meta` envelope stamped onto every typed request, and onto a hand-built one
+     * for `sendRequest()`.
      */
     public function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
     {
@@ -657,8 +658,8 @@ final class Client
     }
 
     /**
-     * Sends `$subscription`'s listen request on `$transport` and routes that one connection's answer to
-     * the caller-facing outcome. Runs once per connection the subscription is carried on.
+     * Sends `$subscription`'s listen request on `$transport` once per connection it is carried on, routing
+     * that answer to the caller-facing outcome.
      *
      * @throws TransportAlreadyClosedException
      */
@@ -675,9 +676,8 @@ final class Client
                 $this->subscriptions->forget($id)?->outcome->complete($response->result);
             })
             ->catch(function (\Throwable $e) use ($id, $transport): void {
-                // Read here rather than when the request went out, because only a failure that a
-                // replacement peer will be given another go at leaves the stream owing an outcome. A peer
-                // that answers "no" is answering, so it ends the stream however replaceable it was.
+                // Read here rather than at send time, because only a failure a replacement peer will retry
+                // leaves the stream owing an outcome.
                 if ($transport instanceof ReconnectingTransportInterface && $transport->isReconnecting()) {
                     return;
                 }
@@ -718,9 +718,8 @@ final class Client
 
         foreach (self::RETRYABLE_REQUESTS as $retryable) {
             if ($retryable::getMethod() === $method) {
-                // A multi-round-trip continuation only names a state-reading method. It carries the user's
-                // answers and an opaque resume token, so sending it again hands a one-time answer over
-                // twice and resumes work the peer that issued the token no longer has.
+                // A continuation carries one-time answers and a resume token, so sending it again double-
+                // answers and resumes work the issuing peer no longer has.
                 return ! self::resumesAnEarlierRound($request->params);
             }
         }
@@ -741,8 +740,8 @@ final class Client
     }
 
     /**
-     * Stops the transport-level work still running for a request nobody is waiting on any more. A stream
-     * left reading would otherwise run until the peer ends it, which a `subscriptions/listen` never does.
+     * Stops transport-level work for a request nobody awaits, which a `subscriptions/listen` stream would
+     * otherwise run until the peer ends it.
      */
     private static function abortExchange(TransportInterface $transport, RequestId $id): void
     {
@@ -762,9 +761,8 @@ final class Client
     }
 
     /**
-     * Re-lists the named tool so its cached `x-mcp-header` bindings match the server's current
-     * `inputSchema`. Gives up on a cursor it has already followed or at the page ceiling, forgetting
-     * the stale bindings so the retry goes out unmirrored rather than with the header just rejected.
+     * Re-lists the named tool so its cached `x-mcp-header` bindings match the server's `inputSchema`,
+     * forgetting them when it gives up.
      */
     private function refreshToolHeaderBindings(string $name): void
     {
@@ -848,8 +846,8 @@ final class Client
 
         $progressToken = $this->mintProgressToken();
 
-        // The deadline arms its timers on construction, so everything from here on runs under the `finally`
-        // that disarms them. A throw in between would otherwise hold the event loop open for the ceiling.
+        // The deadline arms its timers on construction, so a throw before the `finally` that disarms them
+        // would hold the event loop open for the ceiling.
         $deadline = $this->openDeadline();
 
         try {
@@ -905,8 +903,8 @@ final class Client
             try {
                 return $this->exchange($request, $response, $context, $deadline);
             } catch (RemoteCallFailedException $e) {
-                // SEP-2575: a server that rejects the requested version names the ones it accepts, and the
-                // client SHOULD retry with one of them. The retry is not itself retried.
+                // SEP-2575: a server rejecting the requested version names the ones it accepts and the client
+                // SHOULD retry once with one of them, without retrying the retry.
                 $retry = $this->renegotiateProtocolVersion($request, $e);
 
                 if (null === $retry) {
@@ -1042,8 +1040,8 @@ final class Client
     }
 
     /**
-     * Frees the request's slot and tells the peer to stop working on it, then reports the timeout. A
-     * response arriving after this has no awaiter left and is discarded as an orphan.
+     * Frees the request's slot and tells the peer to stop working on it before reporting the timeout,
+     * orphaning any response that still arrives.
      *
      * @param JsonRpcRequest<non-empty-string> $request
      */
