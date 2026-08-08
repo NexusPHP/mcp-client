@@ -502,7 +502,7 @@ final class Client
 
     /**
      * @param non-empty-string                                $name           The prompt name, exactly as the server listed it
-     * @param null|array<string, string>                      $arguments
+     * @param null|array<array-key, string>                   $arguments
      * @param null|array<int|non-empty-string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
      * @param null|string                                     $requestState   Echoed verbatim from the `InputRequiredResult` being answered
      *
@@ -533,8 +533,8 @@ final class Client
     }
 
     /**
-     * @param array{name: string, value: string}            $argument
-     * @param null|array{arguments?: array<string, string>} $context
+     * @param array{name: string, value: string}               $argument
+     * @param null|array{arguments?: array<array-key, string>} $context
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -571,7 +571,7 @@ final class Client
      * echoed back unchanged.
      *
      * @param non-empty-string                                                      $name           The tool name, exactly as the server listed it
-     * @param null|array<string, mixed>                                             $arguments
+     * @param null|array<array-key, mixed>                                          $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
      * @param null|string                                                           $requestState   Echoed verbatim from the `InputRequiredResult` being answered
@@ -781,7 +781,7 @@ final class Client
      * One `tools/call` attempt, mirroring whatever parameter headers are cached for the tool.
      *
      * @param non-empty-string                                                      $name
-     * @param null|array<string, mixed>                                             $arguments
+     * @param null|array<array-key, mixed>                                          $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses
      */
@@ -1087,7 +1087,7 @@ final class Client
      * The mirrored `Mcp-Param-{Name}` headers for one tool call, empty when the transport does not mirror
      * them or the tool declared none.
      *
-     * @param null|array<string, mixed> $arguments
+     * @param null|array<array-key, mixed> $arguments
      *
      * @return array<non-empty-string, string>
      */
