@@ -106,8 +106,7 @@ use Psr\Log\NullLogger;
 use Revolt\EventLoop;
 
 /**
- * Client-side entry point: drives the transport lifecycle and exposes the typed
- * JSON-RPC operations a client issues against an MCP server.
+ * Client-side entry point for the typed JSON-RPC operations issued against an MCP server.
  */
 final class Client
 {
@@ -121,14 +120,7 @@ final class Client
      */
     public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
 
-    /**
-     * Pages a header-binding refresh may walk, since every page is answered and no deadline bounds it.
-     */
     private const int MAX_HEADER_REFRESH_PAGES = 100;
-
-    /**
-     * The requests a lost call may be sent again as.
-     */
     private const array RETRYABLE_REQUESTS = [
         CompleteRequest::class,
         DiscoverRequest::class,
@@ -144,8 +136,6 @@ final class Client
     private ?Implementation $serverInfo = null;
 
     /**
-     * `x-mcp-header` bindings of every tool a `tools/list` admitted, keyed by tool name.
-     *
      * @var array<string, list<ParameterHeaderBinding>>
      */
     private array $toolHeaderBindings = [];
@@ -187,12 +177,10 @@ final class Client
     public function connect(TransportInterface $transport): void
     {
         if (null !== $this->transport) {
-            // Reject reentry to avoid orphaning the previous transport.
             throw new ClientAlreadyConnectedException();
         }
 
         $this->logger->info('Starting MCP client.');
-
         $this->transport = $transport;
 
         $this->listeners[] = $transport->onMessage(function (array $envelope, ReceiveContext $context) use ($transport): void {
@@ -200,15 +188,11 @@ final class Client
         });
         $this->listeners[] = $transport->onError(function (\Throwable $e): void {
             if ($e instanceof OutboundRequestFailedException) {
-                // The exchange is over, so a caller still awaiting its response would block for the life of
-                // the process.
                 $this->outboundRequests->reject($e->requestId, $e);
             }
 
             if ($e instanceof SupervisionExhaustedException) {
-                // No further peer is coming, so a held stream and a retained request would both wait for the
-                // life of the process.
-                $this->settleSubscriptions($e);
+                $this->failSubscriptions($e);
                 $this->outboundRequests->cancelAll($e);
             }
 
@@ -219,16 +203,10 @@ final class Client
         });
         $this->listeners[] = $transport->onClose(function () use ($transport): void {
             $error = new TransportAlreadyClosedException(operation: 'await-response');
-
-            // A retained request outlives the peer that was carrying it, so only the rest fail here.
             $this->outboundRequests->cancelUnretained($error);
 
-            // The supervisor decides on a replacement after emitting this close, so whether one is coming
-            // is only readable on the next tick.
             EventLoop::queue(function () use ($transport, $error): void {
                 if ($transport !== $this->transport) {
-                    // `disconnect()` already failed what this transport was owed, so it speaks for nothing
-                    // pending now.
                     return;
                 }
 
@@ -236,8 +214,6 @@ final class Client
                     return;
                 }
 
-                // Nothing replaces this peer, so a retained request has run out of peers while each stream
-                // settles from its own failed exchange.
                 $this->outboundRequests->cancelAll($error);
             });
         });
@@ -251,8 +227,6 @@ final class Client
                         $transport->send($request, $retained['context']);
                     } catch (\Throwable $e) {
                         if ($transport->isReconnecting()) {
-                            // Left retained so the peer after this dead replacement tries again, matching the
-                            // subscription walk below.
                             $this->logger->warning(
                                 'Could not send request {id} again to the replacement peer.',
                                 ['id' => $request->id->id, 'exception' => $e],
@@ -261,7 +235,6 @@ final class Client
                             continue;
                         }
 
-                        // Nothing else will carry it, so the caller hears now rather than at the deadline.
                         $this->outboundRequests->reject($request->id, $e);
                     }
                 }
@@ -270,7 +243,6 @@ final class Client
                     try {
                         $this->openStream($subscription, $transport);
                     } catch (\Throwable $e) {
-                        // Left registered, so the next replacement peer gets another go at it.
                         $this->logger->error(
                             'Could not re-open subscription {id} against the replacement peer.',
                             ['id' => $subscription->subscriptionId->id, 'exception' => $e],
@@ -284,26 +256,21 @@ final class Client
     }
 
     /**
-     * Closes the transport and detaches it so a fresh `connect()` can run, doing nothing when not connected.
+     * Closes the transport and detaches it, doing nothing when not connected.
      */
     public function disconnect(): void
     {
         $transport = $this->transport;
         $this->transport = null;
 
-        // Everything cached here describes the server that just went away, so a later connection must not
-        // mirror its headers, answer for its identity, or gate on what it advertised.
         $this->toolHeaderBindings = [];
         $this->serverInfo = null;
         $this->serverCapabilities->record(null);
 
-        // Settled before the close, so a supervised transport cannot answer the peer loss it is about to
-        // see by re-opening streams, or re-sending requests, the caller has just given up.
         $error = new TransportAlreadyClosedException(operation: 'await-response');
-        $this->settleSubscriptions($error);
+        $this->failSubscriptions($error);
         $this->outboundRequests->cancelAll($error);
 
-        // A `connect()` may land in the close's suspension window and register on the field.
         $listeners = $this->listeners;
         $this->listeners = [];
 
@@ -316,20 +283,11 @@ final class Client
         }
     }
 
-    /**
-     * The server's `Implementation` block from the last `server/discover`
-     * response `_meta`, or `null` if discovery has not run since the last
-     * `disconnect()` or the server did not identify itself.
-     */
     public function getServerInfo(): ?Implementation
     {
         return $this->serverInfo;
     }
 
-    /**
-     * The server's capabilities from the last `server/discover` response, or
-     * `null` if discovery has not run since the last `disconnect()`.
-     */
     public function getServerCapabilities(): ?ServerCapabilities
     {
         return $this->serverCapabilities->current();
@@ -357,8 +315,7 @@ final class Client
     }
 
     /**
-     * Opens a `subscriptions/listen` stream routing every notification tagged with its id to
-     * `$onNotification`, returning as soon as the request is away.
+     * Opens a `subscriptions/listen` stream, returning as soon as the request is away.
      *
      * @param \Closure(JsonRpcNotification<non-empty-string>): void $onNotification
      *
@@ -374,15 +331,11 @@ final class Client
         /** @var DeferredFuture<SubscriptionsListenResult> $outcome */
         $outcome = new DeferredFuture();
 
-        // Left unignored, a refused subscription surfaces as an unhandled future when the stream is
-        // collected.
         $future = $outcome->getFuture();
         $future->ignore();
 
         $subscription = new OpenSubscription($id, $notifications, $onNotification, $outcome);
 
-        // Routed only once the correlation slot is claimed, so an id already in flight is refused before
-        // this stream can displace the routing entry of the live one that owns it.
         $this->openStream($subscription, $transport);
         $this->subscriptions->register($subscription);
 
@@ -390,7 +343,6 @@ final class Client
             $this->subscriptions->forget($id);
 
             if (! $this->outboundRequests->forget($id)) {
-                // The server already answered, so no in-flight request remains for a cancellation to name.
                 return;
             }
 
@@ -401,7 +353,6 @@ final class Client
                     params: new CancelledNotificationParams(requestId: $id, reason: 'The subscription was closed.'),
                 ));
             } catch (\Throwable $e) {
-                // Closing a stream whose transport already went away is teardown, not a failure to report.
                 $this->logger->debug(
                     'Could not tell the server that subscription {id} was closed.',
                     ['id' => $id->id, 'exception' => $e],
@@ -483,9 +434,8 @@ final class Client
     }
 
     /**
-     * @param non-empty-string                                $uri            The resource URI, held to the RFC 3986 absolute-URI shape the spec's `format: uri` fixes
-     * @param null|array<int|non-empty-string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
-     * @param null|string                                     $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     * @param non-empty-string                                $uri
+     * @param null|array<int|non-empty-string, InputResponse> $inputResponses
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -512,10 +462,9 @@ final class Client
     }
 
     /**
-     * @param non-empty-string                                $name           The prompt name, exactly as the server listed it
+     * @param non-empty-string                                $name
      * @param null|array<array-key, string>                   $arguments
-     * @param null|array<int|non-empty-string, InputResponse> $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
-     * @param null|string                                     $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     * @param null|array<int|non-empty-string, InputResponse> $inputResponses
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -572,15 +521,13 @@ final class Client
     }
 
     /**
-     * Invokes a tool, minting a `progressToken` into `_meta` when `$onProgress` is given and answering with an
-     * `InputRequiredResult` whose `requestState` must be echoed back unchanged when the server needs more
-     * input.
+     * Invokes a tool, answering with an `InputRequiredResult` whose `requestState` must be echoed back
+     * unchanged when the server needs more input.
      *
-     * @param non-empty-string                                                      $name           The tool name, exactly as the server listed it
+     * @param non-empty-string                                                      $name
      * @param null|array<array-key, mixed>                                          $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
-     * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses Answers to a prior `InputRequiredResult`, keyed as its `inputRequests` were
-     * @param null|string                                                           $requestState   Echoed verbatim from the `InputRequiredResult` being answered
+     * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses
      *
      * @throws ClientNotConnectedException
      * @throws RequestTimeoutException
@@ -602,21 +549,16 @@ final class Client
             }
         }
 
-        // The cached `inputSchema` is behind the server's, so refresh and retry once before a second mismatch
-        // propagates.
         $this->refreshToolHeaderBindings($name);
 
         return $this->attemptToolCall($name, $arguments, $onProgress, $inputResponses, $requestState);
     }
 
     /**
-     * Sends an outbound JSON-RPC request and awaits the correlated response.
-     *
      * @template TResponse of JsonRpcResultResponse = JsonRpcResultResponse
      *
      * @param JsonRpcRequest<non-empty-string> $request
      * @param class-string<TResponse>          $response
-     * @param null|float                       $timeout  Seconds this one request may go unanswered, overriding the client's default
      *
      * @return TResponse
      *
@@ -634,10 +576,6 @@ final class Client
         return $this->dispatch($request, $response, $context, $this->openDeadline($timeout));
     }
 
-    /**
-     * Builds the self-describing `_meta` envelope stamped onto every typed request, and onto a hand-built one
-     * for `sendRequest()`.
-     */
     public function stampMeta(?ProgressToken $progressToken = null): RequestMetaObject
     {
         return new RequestMetaObject(
@@ -648,36 +586,24 @@ final class Client
         );
     }
 
-    /**
-     * Mints a request id from the builder-configured factory, so hand-built
-     * `sendRequest()` requests share the id scheme of the typed methods.
-     */
     public function mintRequestId(): RequestId
     {
         return new RequestId(id: ($this->requestIdFactory)());
     }
 
     /**
-     * Sends `$subscription`'s listen request on `$transport` once per connection it is carried on, routing
-     * that answer to the caller-facing outcome.
-     *
      * @throws TransportAlreadyClosedException
      */
     private function openStream(OpenSubscription $subscription, TransportInterface $transport): void
     {
         $id = $subscription->subscriptionId;
-
-        // Claim the correlation slot first: a duplicate id must not leave a routing entry behind.
         $response = $this->outboundRequests->register($id, SubscriptionsListenResultResponse::class);
 
         $response
             ->map(function (SubscriptionsListenResultResponse $response) use ($id): void {
-                // Absent when the caller closed the stream first, which owes them no outcome.
                 $this->subscriptions->forget($id)?->outcome->complete($response->result);
             })
             ->catch(function (\Throwable $e) use ($id, $transport): void {
-                // Read here rather than at send time, because only a failure a replacement peer will retry
-                // leaves the stream owing an outcome.
                 if ($transport instanceof ReconnectingTransportInterface && $transport->isReconnecting()) {
                     return;
                 }
@@ -703,9 +629,6 @@ final class Client
     }
 
     /**
-     * Whether a peer that dies mid-`$request` should be replaced and the request sent again, rather than
-     * the caller hearing that the connection went away.
-     *
      * @param JsonRpcRequest<non-empty-string> $request
      */
     private function retainsAcrossRestart(JsonRpcRequest $request): bool
@@ -718,8 +641,6 @@ final class Client
 
         foreach (self::RETRYABLE_REQUESTS as $retryable) {
             if ($retryable::getMethod() === $method) {
-                // A continuation carries one-time answers and a resume token, so sending it again double-
-                // answers and resumes work the issuing peer no longer has.
                 return ! self::resumesAnEarlierRound($request->params);
             }
         }
@@ -727,9 +648,6 @@ final class Client
         return false;
     }
 
-    /**
-     * Whether these params continue an exchange the server suspended, rather than opening a fresh one.
-     */
     private static function resumesAnEarlierRound(?RequestParamsInterface $params): bool
     {
         if (! $params instanceof InputResponseCarrierInterface) {
@@ -739,10 +657,6 @@ final class Client
         return $params->getInputResponses() !== null || $params->getRequestState() !== null;
     }
 
-    /**
-     * Stops transport-level work for a request nobody awaits, which a `subscriptions/listen` stream would
-     * otherwise run until the peer ends it.
-     */
     private static function abortExchange(TransportInterface $transport, RequestId $id): void
     {
         if ($transport instanceof AbortableTransportInterface) {
@@ -750,24 +664,15 @@ final class Client
         }
     }
 
-    /**
-     * Fails every stream still open, for a client that will not be re-opening them.
-     */
-    private function settleSubscriptions(\Throwable $reason): void
+    private function failSubscriptions(\Throwable $reason): void
     {
         foreach ($this->subscriptions->drain() as $subscription) {
             $subscription->outcome->error($reason);
         }
     }
 
-    /**
-     * Re-lists the named tool so its cached `x-mcp-header` bindings match the server's `inputSchema`,
-     * forgetting them when it gives up.
-     */
     private function refreshToolHeaderBindings(string $name): void
     {
-        // `listTools()` caches bindings only for a mirroring transport, so for any other one the walk
-        // provably changes nothing and is pure round trips.
         if (! $this->transport instanceof ParameterHeaderMirroringInterface) {
             return;
         }
@@ -811,8 +716,6 @@ final class Client
     }
 
     /**
-     * One `tools/call` attempt, mirroring whatever parameter headers are cached for the tool.
-     *
      * @param non-empty-string                                                      $name
      * @param null|array<array-key, mixed>                                          $arguments
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
@@ -845,13 +748,9 @@ final class Client
         }
 
         $progressToken = $this->mintProgressToken();
-
-        // The deadline arms its timers on construction, so a throw before the `finally` that disarms them
-        // would hold the event loop open for the ceiling.
         $deadline = $this->openDeadline();
 
         try {
-            // Progress means the call is alive, so each report buys it another idle window, up to the ceiling.
             $this->progressListeners->register(
                 $progressToken,
                 static function (float $progress, ?float $total, ?string $message) use ($onProgress, $deadline): void {
@@ -903,8 +802,7 @@ final class Client
             try {
                 return $this->exchange($request, $response, $context, $deadline);
             } catch (RemoteCallFailedException $e) {
-                // SEP-2575: a server rejecting the requested version names the ones it accepts and the client
-                // SHOULD retry once with one of them, without retrying the retry.
+                // SEP-2575: the client SHOULD retry once with a version the rejection named, and never retry the retry.
                 $retry = $this->renegotiateProtocolVersion($request, $e);
 
                 if (null === $retry) {
@@ -924,8 +822,6 @@ final class Client
     }
 
     /**
-     * Sends one request and awaits its correlated response.
-     *
      * @template TResponse of JsonRpcResultResponse
      *
      * @param JsonRpcRequest<non-empty-string> $request
@@ -959,8 +855,6 @@ final class Client
         try {
             $transport->send($request, $context);
         } catch (\Throwable $e) {
-            // A failed send leaves the registration with no awaiter and no
-            // response to correlate, so free the slot before propagating.
             $this->outboundRequests->forget($request->id);
 
             throw $e;
@@ -978,9 +872,6 @@ final class Client
     }
 
     /**
-     * Rebuilds the request under a version the rejection named as supported, or null when the failure is
-     * not a version rejection or names no version this SDK speaks.
-     *
      * @template TMethod of non-empty-string
      *
      * @param JsonRpcRequest<TMethod> $request
@@ -1004,7 +895,6 @@ final class Client
         $params = $request->params;
 
         if (! $params instanceof RequestParams) {
-            // A request carrying no typed params carries no `_meta` to restamp either.
             return null;
         }
 
@@ -1016,8 +906,6 @@ final class Client
 
         $envelope = $request->toArray();
         $envelope['params'] = $fields;
-
-        // A fresh id: the rejected one has already been answered and its slot retired.
         $envelope['id'] = $this->mintRequestId()->id;
 
         return $request::fromArray($envelope);
@@ -1040,9 +928,6 @@ final class Client
     }
 
     /**
-     * Frees the request's slot and tells the peer to stop working on it before reporting the timeout,
-     * orphaning any response that still arrives.
-     *
      * @param JsonRpcRequest<non-empty-string> $request
      */
     private function abandon(
@@ -1059,7 +944,6 @@ final class Client
                 params: new CancelledNotificationParams(requestId: $request->id, reason: 'The request timed out.'),
             ));
         } catch (\Throwable $e) {
-            // The peer goes on working on a result nobody will read, which the timeout itself survives.
             $this->logger->warning(
                 'Could not tell the server that request {id} was abandoned.',
                 ['id' => $request->id->id, 'exception' => $e],
@@ -1081,7 +965,7 @@ final class Client
 
     /**
      * Caches the `x-mcp-header` bindings of every tool whose declarations hold, and drops the rest from the
-     * listing: the spec has a client exclude a tool it cannot mirror rather than call it unmirrored.
+     * listing.
      */
     private function admitMirrorableTools(ListToolsResult $result): ListToolsResult
     {
@@ -1091,8 +975,6 @@ final class Client
             $scan = ParameterHeaderScanner::scan($tool->inputSchema);
 
             if (! $scan->valid) {
-                // A re-listed tool whose declarations no longer hold must not keep mirroring the bindings
-                // an earlier listing cached for it.
                 unset($this->toolHeaderBindings[$tool->name]);
 
                 $this->logger->warning(
@@ -1117,16 +999,12 @@ final class Client
     }
 
     /**
-     * The mirrored `Mcp-Param-{Name}` headers for one tool call, empty when the transport does not mirror
-     * them or the tool declared none.
-     *
      * @param null|array<array-key, mixed> $arguments
      *
      * @return array<non-empty-string, string>
      */
     private function mirrorParameterHeaders(string $name, ?array $arguments): array
     {
-        // Only a mirroring transport ever fills the cache, so an empty one already means nothing to mirror.
         return ParameterHeaders::build($this->toolHeaderBindings[$name] ?? [], $arguments ?? []);
     }
 
@@ -1138,7 +1016,6 @@ final class Client
         $capabilities = $this->serverCapabilities->current();
 
         if (null === $capabilities) {
-            // Discovery has not run, so there are no advertised capabilities to enforce.
             return;
         }
 

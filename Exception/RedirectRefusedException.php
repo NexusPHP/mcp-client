@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when a response arrived from a URL other than the one the request was sent to, which an HTTP client
- * that follows redirects will do without re-checking the destination.
+ * Thrown when a response arrived from a URL other than the one the request was sent to.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */

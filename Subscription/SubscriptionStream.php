@@ -20,9 +20,7 @@ use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
 
 /**
- * An open `subscriptions/listen` stream. Ends when the caller closes it or the server tears it down.
- * A supervised transport re-opens it against each replacement peer under the same subscription id,
- * so neither the id nor this object is spent by a restart.
+ * An open `subscriptions/listen` stream, surviving a restart under the same subscription id.
  */
 final class SubscriptionStream
 {
@@ -42,7 +40,7 @@ final class SubscriptionStream
     }
 
     /**
-     * Stops the stream, telling the server the subscription is over. Subsequent calls are no-ops.
+     * Stops the stream, with subsequent calls no-ops.
      */
     public function close(): void
     {
@@ -55,8 +53,7 @@ final class SubscriptionStream
     }
 
     /**
-     * Blocks until the server tears the subscription down of its own accord. A peer that dies under
-     * supervision does not settle this: the wait resumes against the replacement.
+     * Blocks until the server tears the subscription down of its own accord.
      *
      * @throws RemoteCallFailedException
      * @throws SubscriptionClosedException
@@ -64,8 +61,6 @@ final class SubscriptionStream
     public function await(): SubscriptionsListenResult
     {
         if ($this->closed) {
-            // The spec answers an abrupt close with nothing, so this response can never arrive and
-            // awaiting it would park the caller for good.
             throw new SubscriptionClosedException($this->subscriptionId);
         }
 

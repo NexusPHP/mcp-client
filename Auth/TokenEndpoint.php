@@ -30,8 +30,7 @@ use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Http\HttpStatus;
 
 /**
- * Redeems a grant at an authorization server's token endpoint: an authorization code, a refresh token, or
- * the form body a caller-built grant supplies.
+ * Client for an authorization server's token endpoint.
  *
  * @internal
  *
@@ -41,21 +40,8 @@ use Nexus\Mcp\Core\Http\HttpStatus;
 final readonly class TokenEndpoint
 {
     private const string LABEL = 'Token response';
-
-    /**
-     * RFC 6749 error codes that mean the grant presented cannot produce a token. Every other code is a
-     * client, configuration, or server fault that granting again would not clear.
-     */
     private const array GRANT_REJECTIONS = ['invalid_grant', 'invalid_scope'];
-
-    /**
-     * The RFC 6749 error code that means the client identifier presented is not one the server knows.
-     */
     private const string CLIENT_REJECTION = 'invalid_client';
-
-    /**
-     * Longest lifetime an `expires_in` is read as, ten years in seconds.
-     */
     private const int MAX_LIFETIME_SECONDS = 315_360_000;
 
     private JsonHttpExchange $exchange;
@@ -86,9 +72,6 @@ final readonly class TokenEndpoint
     }
 
     /**
-     * Redeems a caller-built grant, with client authentication, error triage, and the token read applied the
-     * same way as for the built-in grants.
-     *
      * @param array<string, string> $parameters      Full form body of the grant, `grant_type` included
      * @param ScopeSet              $requestedScopes Scopes the token carries when the response names none
      */
@@ -124,12 +107,9 @@ final readonly class TokenEndpoint
 
         $headers = ['Content-Type' => 'application/x-www-form-urlencoded'];
 
-        // RFC 6749 lets a client authenticate one way only, so the identifier travels in the header or in
-        // the body but never in both.
         if (TokenEndpointAuthMethod::ClientSecretBasic === $registration->tokenEndpointAuthMethod) {
             $headers['Authorization'] = self::buildBasicCredentials($registration);
         } elseif (TokenEndpointAuthMethod::PrivateKeyJwt === $registration->tokenEndpointAuthMethod) {
-            // RFC 7523 has the assertion itself name the client, so `client_id` stays out of the body.
             Assert::that($parameters)->hasOffset('client_assertion', \sprintf(
                 'Client "%s" must carry a "client_assertion" parameter to authenticate with "private_key_jwt".',
                 $registration->clientId,
@@ -156,9 +136,6 @@ final readonly class TokenEndpoint
                 throw $e;
             }
 
-            // An error status whose body will not parse is the infrastructure in front of the authorization
-            // server talking, not the server refusing the grant. Letting the malformed answer through would
-            // have the caller read it as a spent grant and drop a refresh token that is still good.
             throw new TokenRequestFailedException(
                 'invalid_request',
                 \sprintf('The token endpoint answered %d with a body that is not a JSON object.', $status),
@@ -200,11 +177,7 @@ final readonly class TokenEndpoint
         return new AccessToken(
             MetadataReader::readRequiredString($data, 'access_token', self::LABEL),
             $issuer,
-            // A lifetime read as sent would overflow the clock it is added to into a float, which the token
-            // rejects with a `TypeError` no caller can recover from.
             null === $lifetime ? null : time() + min($lifetime, self::MAX_LIFETIME_SECONDS),
-            // A server that rotates refresh tokens issues a new one and the old is spent. One that omits it
-            // leaves the prior token valid, so dropping it here would strand the client after one renewal.
             MetadataReader::readString($data, 'refresh_token', self::LABEL) ?? $priorRefreshToken,
             null === $scope ? $requestedScopes->values : ScopeSet::parse($scope)->values,
         );

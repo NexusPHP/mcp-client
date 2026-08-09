@@ -31,16 +31,11 @@ use Psr\Log\NullLogger;
 use function Amp\async;
 
 /**
- * Stdio MCP client transport. Launches an MCP server subprocess and exchanges
- * line-framed JSON-RPC envelopes over its STDIN/STDOUT.
+ * Stdio MCP client transport over a launched server subprocess's STDIN/STDOUT.
  */
 final class StdioClientTransport implements SupervisableTransportInterface
 {
     private const string LABEL = 'Stdio client';
-
-    /**
-     * Environment variable names safe to inherit by default, across POSIX and Windows hosts.
-     */
     private const array INHERITED_ENV_NAMES = [
         'APPDATA',
         'HOME',
@@ -64,8 +59,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
     private ?SubprocessInterface $process = null;
 
     /**
-     * Bounds the exit watch. `SubprocessInterface::join()` references the event loop while it awaits,
-     * so an unbounded watch would hold the loop open for the lifetime of the subprocess.
+     * Bounds the exit watch, since `SubprocessInterface::join()` references the event loop while it awaits.
      */
     private ?DeferredCancellation $exitWatch = null;
 
@@ -106,9 +100,6 @@ final class StdioClientTransport implements SupervisableTransportInterface
     }
 
     /**
-     * Builds the pruned default subprocess environment: the inherited-name allowlist
-     * populated from `$source`, skipping values that look like exported shell functions.
-     *
      * @internal
      *
      * @param null|array<string, string> $source Defaults to the parent process environment.
@@ -220,10 +211,6 @@ final class StdioClientTransport implements SupervisableTransportInterface
         return $this->duplex->onClose($listener);
     }
 
-    /**
-     * Reports an exit nobody asked for. `close()` cancels the watch, so a requested shutdown settles
-     * it without reaching the listeners.
-     */
     private function watchForExit(SubprocessInterface $process): void
     {
         $this->exitWatch = new DeferredCancellation();
@@ -237,7 +224,6 @@ final class StdioClientTransport implements SupervisableTransportInterface
                     return;
                 }
 
-                // The wrapper died without reporting a status.
                 $exitCode = null;
             }
 

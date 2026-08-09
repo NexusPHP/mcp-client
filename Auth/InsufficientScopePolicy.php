@@ -21,9 +21,8 @@ namespace Nexus\Mcp\Client\Auth;
 enum InsufficientScopePolicy
 {
     /**
-     * Ask the resource owner to grant the challenged scopes as well, then retry the request. Raises
-     * `InsufficientScopeException` only once asking cannot help: the upgrade budget is spent, or the
-     * challenge names nothing the token lacks.
+     * Ask the resource owner to grant the challenged scopes as well and retry, raising
+     * `InsufficientScopeException` only once asking cannot help.
      */
     case Reauthorize;
 

@@ -16,15 +16,14 @@ namespace Nexus\Mcp\Client;
 use Nexus\Mcp\Core\Extension\ExtensionInterface;
 
 /**
- * Declares an extension the client participates in, enabled via `ClientBuilder::enableExtension()`.
+ * An extension the client participates in.
  *
  * @extends ExtensionInterface<ClientContext>
  */
 interface ClientExtensionInterface extends ExtensionInterface
 {
     /**
-     * The client-to-server request methods this extension invokes, used to
-     * refuse a send to a server that did not advertise the extension.
+     * The client-to-server request methods this extension invokes.
      *
      * @return list<non-empty-string>
      */

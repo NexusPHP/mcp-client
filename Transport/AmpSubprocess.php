@@ -19,7 +19,7 @@ use Amp\Cancellation;
 use Amp\Process\Process;
 
 /**
- * Presents an `Amp\Process\Process` as a `SubprocessInterface`.
+ * Adapter presenting an `Amp\Process\Process` as a `SubprocessInterface`.
  *
  * @internal
  */

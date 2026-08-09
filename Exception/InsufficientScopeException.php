@@ -16,9 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an MCP server answers that the token's scopes are insufficient and asking the resource owner
- * for more is not an option: the client is configured to report instead, the upgrade budget is spent, or the
- * token already carries everything the challenge names.
+ * Thrown when an MCP server answers that the token's scopes are insufficient and no scope upgrade is available.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
  */

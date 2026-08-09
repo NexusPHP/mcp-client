@@ -21,8 +21,7 @@ use Nexus\Mcp\Core\Auth\ScopeSet;
 use Psr\Log\LoggerInterface;
 
 /**
- * What a grant strategy may draw on to obtain a token: what discovery found, the resource the token is for,
- * the scopes to ask for, and the two authorization-server calls a grant is built from.
+ * What a grant strategy draws on to obtain an access token.
  */
 final readonly class GrantContext
 {
@@ -42,8 +41,8 @@ final readonly class GrantContext
     }
 
     /**
-     * Resolves the `client_id` to present, walking the mechanisms in the priority order the spec fixes:
-     * pre-registered credentials, then a Client ID Metadata Document, then Dynamic Client Registration.
+     * Resolves the `client_id` to present, preferring pre-registered credentials, then a Client ID Metadata
+     * Document, then Dynamic Client Registration.
      *
      * @throws AuthorizationServerMismatchException
      */
@@ -53,9 +52,6 @@ final readonly class GrantContext
     }
 
     /**
-     * Redeems a grant at the discovered authorization server's token endpoint, applying client
-     * authentication, RFC 6749 error triage, and the token read the built-in grants use.
-     *
      * @param array<string, string> $parameters      Full form body of the grant, `grant_type` included
      * @param null|ScopeSet         $requestedScopes Scopes the token carries when the response names none, defaulting to the context's
      */

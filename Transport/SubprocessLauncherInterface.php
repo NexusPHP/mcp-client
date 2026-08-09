@@ -16,7 +16,7 @@ namespace Nexus\Mcp\Client\Transport;
 use Amp\Process\ProcessException;
 
 /**
- * Starts the MCP server subprocess a stdio transport speaks to.
+ * Launcher for the MCP server subprocess a stdio transport speaks to.
  *
  * @internal
  */

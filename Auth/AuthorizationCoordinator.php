@@ -32,11 +32,7 @@ use Revolt\EventLoop\FiberLocal;
 use function Amp\async;
 
 /**
- * Runs the OAuth 2.1 flow end to end for one MCP server: discovery, the grant the configured strategy runs,
- * and holding the resulting token for reuse.
- *
- * Everything that writes the token runs one at a time, so concurrent callers put the resource owner in front
- * of at most one consent screen.
+ * Coordinator for one MCP server's OAuth 2.1 flow.
  *
  * @internal
  *
@@ -44,31 +40,13 @@ use function Amp\async;
  */
 final class AuthorizationCoordinator
 {
-    /**
-     * Seconds before its stated expiry at which a token is treated as spent, so a request is not sent with
-     * a token that lapses in flight.
-     */
     private const int EXPIRY_LEEWAY_SECONDS = 30;
 
-    /**
-     * What discovery last found, so a step-up does not repeat it.
-     */
     private ?DiscoveredResource $discovered = null;
-
-    /**
-     * What the most recent grant granted, kept apart from the token so dropping a spent or refused one does
-     * not narrow what the next grant asks for.
-     */
     private ScopeSet $granted;
-
-    /**
-     * Held for the length of everything that writes the token, so no two callers run a flow at once.
-     */
     private LocalSemaphore $lock;
 
     /**
-     * Whether the fiber running this call already holds the lock.
-     *
      * @var FiberLocal<bool>
      */
     private FiberLocal $reentrant;
@@ -100,16 +78,11 @@ final class AuthorizationCoordinator
             return null;
         }
 
-        // A token read back from a store may have been minted by a server the resource has since moved off,
-        // and the spec forbids presenting it to the new one. A store shared with another process can hand
-        // this one a token discovery never saw, so the issuer is compared here and not once at the grant.
         if ($this->discovered?->server->issuer === $token->issuer && ! self::hasExpired($token)) {
             return $token;
         }
 
         return $this->runExclusively($cancellation, function () use ($cancellation): ?AccessToken {
-            // Another caller may have replaced it while this one waited its turn, and what it obtained is
-            // held to the same checks rather than trusted for having arrived first.
             $current = $this->readToken();
 
             return null === $current ? null : $this->prepareToken($current, $cancellation);
@@ -117,8 +90,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Obtains a token after the MCP server refused the one presented. What is held is dropped first, so the
-     * next grant can follow the resource to a different authorization server.
+     * Obtains a token after the MCP server refused the one presented.
      *
      * @param null|AccessToken $refused The token the MCP server refused, or `null` when the request carried none
      */
@@ -130,9 +102,6 @@ final class AuthorizationCoordinator
         return $this->runExclusively($cancellation, function () use ($refused, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
-            // Another caller may have replaced the refused token while this one waited its turn, and what it
-            // obtained serves this one too. A token held while discovery has never succeeded is not that: it
-            // was never presented, and this challenge is the first thing that can say where to check it.
             if (null !== $this->discovered && null !== $current && $current->value !== $refused?->value) {
                 return $current;
             }
@@ -144,8 +113,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Obtains a token carrying scopes beyond those the presented one held, after the MCP server answered that
-     * they were insufficient.
+     * Obtains a token carrying scopes beyond those the presented one held.
      *
      * @param null|AccessToken $presented        The token the MCP server found too narrow, or `null` when the request carried none
      * @param ScopeSet         $additionalScopes Scopes the insufficient-scope challenges asked for, accumulated onto the set already granted
@@ -159,9 +127,6 @@ final class AuthorizationCoordinator
         return $this->runExclusively($cancellation, function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
             $current = $this->readToken();
 
-            // A token another caller obtained while this one waited its turn serves it too, but only once it
-            // covers what this one was refused for. A token held while discovery has never succeeded is not
-            // that: it was never checked against the resource, so it cannot stand in for a grant.
             if (null !== $this->discovered
                 && null !== $current
                 && $current->value !== $presented?->value
@@ -190,8 +155,6 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Runs an operation with the lock held, waiting for it no longer than the caller's own cancellation.
-     *
      * @template T
      *
      * @param \Closure(): T $operation
@@ -217,9 +180,6 @@ final class AuthorizationCoordinator
 
     private function acquireLock(Cancellation $cancellation): Lock
     {
-        // A queued waiter cannot be withdrawn from the semaphore, so one that gives up keeps its place in
-        // line. The lock it is eventually handed frees itself once nothing holds it, which is what lets the
-        // caller behind it through.
         /** @var Future<Lock> $pending */
         $pending = async(fn(): Lock => $this->lock->acquire());
 
@@ -248,8 +208,6 @@ final class AuthorizationCoordinator
         try {
             $token = $this->strategy->grant($context, $cancellation);
         } catch (ClientRegistrationRejectedException $e) {
-            // The grant is bound to the identifier that is spent, so it cannot be salvaged. Dropping the
-            // registration is what stops the next one from presenting it again.
             $this->registrar->forget($server->issuer);
 
             throw $e;
@@ -265,10 +223,6 @@ final class AuthorizationCoordinator
         return $token;
     }
 
-    /**
-     * Reads the metadata of the MCP server and of the authorization server it names, reusing what an earlier
-     * round already found.
-     */
     private function discover(?WwwAuthenticateChallenge $challenge, Cancellation $cancellation): DiscoveredResource
     {
         $cached = $this->discovered;
@@ -279,8 +233,6 @@ final class AuthorizationCoordinator
 
         $metadata = $this->discovery->discoverResource($this->resource, $challenge, $cancellation);
 
-        // A resource may name several authorization servers and the choice is the client's. Taking the
-        // first honours the order the resource published them in.
         $server = $this->discovery->discoverServer($metadata->authorizationServers[0], $cancellation);
         $discovered = new DiscoveredResource($metadata, $server);
         $this->discovered = $discovered;
@@ -289,16 +241,13 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Makes a held token fit to present: its issuer is confirmed to be the one the resource still names, and
-     * a spent one is renewed. Answers `null` when neither holds, which sends the request bare.
+     * Makes a held token fit to present, or `null` when the request should be sent bare.
      */
     private function prepareToken(AccessToken $token, Cancellation $cancellation): ?AccessToken
     {
         try {
             $discovered = $this->discover(null, $cancellation);
         } catch (McpExceptionInterface $e) {
-            // Reaching no metadata says nothing about the token. Answering `null` sends the request bare,
-            // and the challenge it draws is what re-authorization needs anyway.
             $this->logger->info('The token for {resource} could not be checked against any metadata. {reason}', [
                 'resource' => $this->resource->value,
                 'reason' => $e->getMessage(),
@@ -309,8 +258,6 @@ final class AuthorizationCoordinator
 
         $server = $discovered->server;
 
-        // A token minted by a server the resource has since moved off cannot be renewed at the new one, and
-        // must not be presented to it either. Its scopes go with it: they were granted elsewhere.
         if ($server->issuer !== $token->issuer) {
             $this->logger->info('The token for {resource} was issued by {issuer}, which no longer serves it.', [
                 'resource' => $this->resource->value,
@@ -327,13 +274,8 @@ final class AuthorizationCoordinator
             return $token;
         }
 
-        // An unattended grant is renewed here and now, whether or not a refresh token came with it: the
-        // registration a refresh resolves is never the one such a strategy authenticates with. The lock is
-        // already held, so the rerun cannot race another caller.
         if ($this->strategy->renewsByFreshGrant()) {
             $this->giveUpOnToken();
-            // The grant reuses the discovery that just confirmed this token's issuer. Discovering again
-            // without a challenge cannot reach a resource document that only a challenge names.
             $this->discovered = $discovered;
 
             return $this->runAuthorization(null, new ScopeSet(), $cancellation);
@@ -373,9 +315,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Drops what is held for the MCP server, keeping what it had granted so re-authorizing asks for it again
-     * rather than narrowing. Discovery goes with it, so the next grant can follow the resource to a different
-     * authorization server.
+     * Drops the token and the discovery held for the MCP server, keeping the granted scopes.
      */
     private function giveUpOnToken(): void
     {
@@ -385,8 +325,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Records what a token was granted, then stores it. A grant that omits a scope the authorization server
-     * had granted earlier is what withdraws it, so this replaces the set rather than adding to it.
+     * Records what a token was granted, replacing the granted scopes rather than merging into them.
      */
     private function rememberGrant(AccessToken $token): void
     {
@@ -399,14 +338,11 @@ final class AuthorizationCoordinator
         DiscoveredResource $discovered,
         ScopeSet $additionalScopes,
     ): ScopeSet {
-        // Asking for only the challenged scopes would drop permissions other operations rely on.
         $scopes = $this->selectBaseline($challenge, $discovered->metadata->scopesSupported)
             ->mergeWith($additionalScopes)
             ->mergeWith($this->readGrantedScopes())
         ;
 
-        // Whether to hold a refresh token is the client's call alone, so the scope that asks for one is
-        // decided here rather than inherited from a resource, a challenge, or an earlier grant.
         $offered = $discovered->server->scopesSupported ?? new ScopeSet();
         $scopes = $scopes->without(ScopeSet::OFFLINE_ACCESS);
 
@@ -418,14 +354,11 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * The set a grant starts from: a challenge is authoritative for the operation that provoked it, then
-     * what the client declared it needs, then the resource's own advertised set. A resource that advertises
-     * none leaves the parameter off.
+     * The scope set a grant starts from: a challenge first, then the client's declared defaults, then the
+     * resource's advertised set.
      */
     private function selectBaseline(?WwwAuthenticateChallenge $challenge, ?ScopeSet $advertised): ScopeSet
     {
-        // A challenge that carries `scope=""` names nothing, so it steers no better than one that carries
-        // no `scope` at all.
         $challenged = ScopeSet::parse($challenge?->readParameter('scope'));
 
         return match (true) {

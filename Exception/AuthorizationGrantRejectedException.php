@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server refuses a token request because the grant presented is spent, so the
- * resource owner has to grant again.
+ * Thrown when an authorization server refuses a token request because the grant presented is spent.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
  */

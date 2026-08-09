@@ -50,18 +50,13 @@ use Psr\Log\NullLogger;
 use function Amp\async;
 
 /**
- * Streamable HTTP MCP client transport. Every outbound message is its own POST to the MCP endpoint, and the
- * response, a single JSON object or a request-scoped SSE stream, is emitted back as inbound envelopes.
+ * Streamable HTTP MCP client transport, one POST per outbound message.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http
  */
 final class StreamableHttpClientTransport implements AbortableTransportInterface, ParameterHeaderMirroringInterface
 {
-    /**
-     * Bytes a single response may occupy before it is abandoned.
-     */
     public const int DEFAULT_MAX_RESPONSE_BYTES = SseFrameParser::DEFAULT_MAX_FRAME_BYTES;
-
     private const string LABEL = 'Streamable HTTP client';
     private const string ACCEPT = 'application/json, text/event-stream';
 
@@ -72,9 +67,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     private ?DeferredCancellation $lifetime = null;
 
     /**
-     * One entry per request POST still in flight, so a caller giving up on a response can stop just that
-     * exchange. Notifications carry no id and nobody awaits them, so they are not tracked.
-     *
      * @var array<non-empty-string, DeferredCancellation>
      */
     private array $inFlight = [];
@@ -134,8 +126,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         \assert($lifetime instanceof DeferredCancellation);
 
         if ($message instanceof JsonRpcResponse) {
-            // A POST body must be a request or a notification: the spec forbids a client from sending
-            // JSON-RPC responses at all, so there is no legal envelope to POST here.
             $this->logger->warning('{label} transport dropped an outbound response, which a client must not send.', ['label' => self::LABEL]);
 
             return;
@@ -143,7 +133,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         $headers = $context->headers ?? [];
 
-        // Only a request has a caller awaiting a response, so only a request names one to fail.
         $requestId = $message instanceof JsonRpcRequest ? $message->id : null;
         $cancellation = $lifetime->getCancellation();
         $held = null;
@@ -153,30 +142,22 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             $this->inFlight[self::buildKey($requestId)] = $abort;
             $held = $abort;
 
-            // Composed rather than replaced: a close still stops every exchange, and `abort()` reaches
-            // only this one.
             $cancellation = new CompositeCancellation($cancellation, $abort->getCancellation());
         }
 
-        // The POST runs detached so a caller awaiting the correlated response is not the thing driving it.
         $this->exchanges->track(async(function () use ($message, $headers, $cancellation, $requestId, $held): void {
             try {
                 $this->exchange($message, $headers, $cancellation);
             } catch (CancelledException) {
-                // Either the transport closed or the caller abandoned this request. Neither is a fault:
-                // the protocol layer learns of a close from the close signal, and it is what asked for
-                // the abort.
+                // A close or an abort is not a fault, and the protocol layer signalled both.
             } catch (\Throwable $e) {
                 try {
                     $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
                 } catch (\Throwable) {
-                    // A listener that throws must not cost this exchange its release, and an error channel
-                    // that just failed is no place to report its own failure.
+                    // A listener that throws must not cost this exchange its release, and the error channel just failed anyway.
                 }
             }
 
-            // Only its own entry: an id already re-sent belongs to a later exchange, and evicting that
-            // one would cancel it through the destructor.
             if (null !== $requestId) {
                 $key = self::buildKey($requestId);
 
@@ -194,17 +175,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             return;
         }
 
-        // Draining runs before the state flips so a listener still settling an exchange can send its last
-        // message. Marking the transport closed first would answer that send with a closed-transport throw.
         try {
             $this->events->emitDrain();
         } finally {
             $this->state = TransportState::Closed;
 
-            // Closing the response stream is itself the cancellation signal, so shutdown aborts the in-flight
-            // POSTs. Awaiting them first would hang on a `subscriptions/listen` stream, which never ends.
-            // The reference is kept: releasing it would cancel through the destructor instead, leaving the
-            // shutdown to depend on refcounting rather than on this call.
             $this->lifetime?->cancel();
             $this->exchanges->flushPending();
             $this->events->emitClose();
@@ -238,9 +213,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     #[\Override]
     public function abort(RequestId $id): void
     {
-        // Cancelling settles the exchange's own cancellation, which unwinds the POST and, on a streaming
-        // answer, the read loop with it. The entry itself is released where every exchange releases it,
-        // once the unwinding reaches the end of the coroutine.
         ($this->inFlight[self::buildKey($id)] ?? null)?->cancel();
     }
 
@@ -253,8 +225,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     }
 
     /**
-     * POSTs one message and emits whatever the server answers with.
-     *
      * @param array<non-empty-string, string> $headers Mirrored parameter headers the protocol layer computed
      */
     private function exchange(JsonRpcMessage $message, array $headers, Cancellation $cancellation): void
@@ -264,8 +234,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         if (HttpStatus::Accepted->value === $status) {
             if ($message instanceof JsonRpcRequest) {
-                // 202 acknowledges a message that expects no answer. A request expects one, and
-                // treating the acknowledgement as its answer would leave it pending forever.
                 throw new UnexpectedHttpStatusException($status);
             }
 
@@ -280,15 +248,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             try {
                 $payload = $this->buffer($response, $cancellation);
             } catch (ResponseTooLargeException) {
-                // An oversized error page is still just an error page. The status is the diagnosis.
                 throw new UnexpectedHttpStatusException($status);
             }
 
             $decoded = json_decode($payload, true);
 
-            // A failure status stands only when its body answers the very request this exchange
-            // carries. Anything else (an id-less error envelope, a notification, an answer to some
-            // other id) cannot settle that request, so emitting it would strand the request forever.
             if (\is_array($decoded)
                 && JsonRpcMessage::JSONRPC_VERSION === ($decoded['jsonrpc'] ?? null)
                 && $message->id->id === ($decoded['id'] ?? null)
@@ -331,7 +295,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     {
         $request = new Request($this->endpoint, 'POST', json_encode($message, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
 
-        // `setHeaders()` replaces the whole bag rather than merging, so every header goes in one call.
         $request->setHeaders([
             'Content-Type' => 'application/json',
             'Accept' => self::ACCEPT,
@@ -339,31 +302,23 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             ...StandardHeaders::build($message->toArray()),
         ]);
 
-        // A request-scoped stream lives as long as the server keeps it open, so only a stall may end it.
         $request->setTransferTimeout(0.0);
         $request->setInactivityTimeout($this->readTimeout);
 
         return $request;
     }
 
-    /**
-     * Emits each frame of an SSE response as it arrives, until the server ends the stream.
-     */
     private function readStream(Response $response, Cancellation $cancellation): void
     {
         $parser = new SseFrameParser($this->maxResponseBytes);
         $body = $response->getBody();
         $chunk = $body->read($cancellation);
 
-        // A null chunk is the server closing the stream, which ends the exchange.
         while (null !== $chunk) {
             foreach ($parser->feed($chunk) as $frame) {
                 try {
                     $envelope = self::decode($frame->data);
                 } catch (\InvalidArgumentException|\JsonException $e) {
-                    // One unreadable frame does not end the stream: a later frame may still carry the
-                    // response, so the exchange reads on rather than failing its caller here. Only the
-                    // decode is guarded, so a listener fault stays a fault rather than an unreadable frame.
                     $this->events->emitError($e);
 
                     continue;
@@ -377,8 +332,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     }
 
     /**
-     * Decodes one JSON-RPC envelope.
-     *
      * @return array<string, mixed>
      *
      * @throws \InvalidArgumentException
@@ -394,8 +347,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
     private static function isEventStream(Response $response): bool
     {
-        // `Content-Type` carries one media type, so the type is the head of the value. A match anywhere
-        // else in it belongs to a parameter, not to the type.
         return str_starts_with(strtolower($response->getHeader('Content-Type') ?? ''), 'text/event-stream');
     }
 }

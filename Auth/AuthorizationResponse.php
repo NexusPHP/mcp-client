@@ -18,7 +18,7 @@ use Nexus\Mcp\Client\Exception\InvalidAuthorizationResponseException;
 use Nexus\Mcp\Core\Auth\MetadataReader;
 
 /**
- * Validates an authorization response against the request it answers and yields the authorization code.
+ * Validated read of the authorization code an authorization response carries.
  *
  * @internal
  *
@@ -36,8 +36,6 @@ final class AuthorizationResponse
             throw new InvalidAuthorizationResponseException('its "state" does not echo the authorization request.');
         }
 
-        // Issuer validation runs before the error is read: on a mismatch the client must not act on or
-        // surface the error the response carries.
         self::validateIssuer($redirect, $parameters);
 
         $error = MetadataReader::readErrorField($parameters, 'error', self::LABEL);
@@ -70,8 +68,6 @@ final class AuthorizationResponse
             return;
         }
 
-        // RFC 3986 simple string comparison: no scheme or host case folding, no default-port elision, no
-        // trailing-slash or percent-encoding normalisation.
         if ($issuer !== $redirect->expectedIssuer) {
             throw new InvalidAuthorizationResponseException('its "iss" names an authorization server other than the one the request was sent to.');
         }

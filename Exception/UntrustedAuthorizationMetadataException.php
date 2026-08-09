@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when a metadata document names a subject other than the one whose URL served it, which is how a
- * hostile server tries to redirect a client to an authorization server it controls.
+ * Thrown when a metadata document names a subject other than the one whose URL served it.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc8414#section-3.3
  */

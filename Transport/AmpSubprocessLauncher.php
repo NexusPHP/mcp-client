@@ -16,7 +16,7 @@ namespace Nexus\Mcp\Client\Transport;
 use Amp\Process\Process;
 
 /**
- * Launches the subprocess through `Amp\Process\Process`.
+ * Subprocess launcher backed by `Amp\Process\Process`.
  *
  * @internal
  */

@@ -45,9 +45,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Fluent builder that assembles the per-feature handler registries, the
- * client-side dispatch kernel, and the outbound-request correlator into a
- * runnable `Client` instance.
+ * Fluent builder for a runnable `Client` instance.
  */
 final class ClientBuilder
 {
@@ -101,10 +99,6 @@ final class ClientBuilder
     }
 
     /**
-     * Enables `$extension`, advertising its capability identifier on every request's
-     * `_meta` and refusing its outbound methods against a server that did not
-     * advertise the extension.
-     *
      * @throws DuplicateExtensionException
      * @throws ExtensionMethodCollisionException
      */
@@ -148,9 +142,6 @@ final class ClientBuilder
         return $this;
     }
 
-    /**
-     * Declares the capabilities advertised in every request's `_meta` envelope.
-     */
     public function setClientCapabilities(ClientCapabilities $capabilities): self
     {
         $this->clientCapabilities = $capabilities;
@@ -166,8 +157,7 @@ final class ClientBuilder
     }
 
     /**
-     * Seconds a request may go unanswered before it is abandoned, or `null` to wait indefinitely. Each
-     * progress notification for the request restarts it.
+     * Seconds a request may go unanswered before it is abandoned, or `null` to wait indefinitely.
      */
     public function setRequestTimeout(?float $seconds): self
     {
@@ -195,10 +185,8 @@ final class ClientBuilder
     }
 
     /**
-     * Sends a state-reading request again when the peer carrying it is replaced, instead of failing it.
-     * Off by default: a retry is at-least-once, so the peer may have served the request before it died.
-     *
-     * @see Client for the requests this covers. `tools/call` and vendor methods are never among them.
+     * Sends a state-reading request again when the peer carrying it is replaced, which is an at-least-once
+     * retry.
      */
     public function setRetryLostRequests(bool $retry): self
     {
@@ -208,8 +196,6 @@ final class ClientBuilder
     }
 
     /**
-     * Overrides the default monotonically-incrementing integer factory.
-     *
      * @param \Closure(): (int|non-empty-string) $factory
      */
     public function setRequestIdFactory(\Closure $factory): self
@@ -220,9 +206,6 @@ final class ClientBuilder
     }
 
     /**
-     * Overrides the default progress-token factory used by `Client::callTool()`
-     * when an `onProgress` callback is supplied.
-     *
      * @param \Closure(): (int|non-empty-string) $factory
      */
     public function setProgressTokenFactory(\Closure $factory): self
@@ -233,8 +216,6 @@ final class ClientBuilder
     }
 
     /**
-     * Registers a handler for an inbound request method the peer may send to the client.
-     *
      * @param non-empty-string                                                 $method
      * @param RequestHandlerInterface<non-empty-string, Result, ClientContext> $handler
      * @param class-string<JsonRpcRequest<non-empty-string>>                   $requestClass Parses inbound `$method` envelopes into typed requests
@@ -262,10 +243,7 @@ final class ClientBuilder
     }
 
     /**
-     * Registers a handler for an inbound notification method.
-     *
-     * Spec-defined notifications already parse, so `$notificationClass` may be omitted for them.
-     * A vendor notification method must name the class that parses it.
+     * `$notificationClass` is needed only for a vendor method that does not already parse.
      *
      * @param non-empty-string                                         $method
      * @param NotificationHandlerInterface<non-empty-string>           $handler
@@ -366,9 +344,6 @@ final class ClientBuilder
     }
 
     /**
-     * Merges the enabled extensions' capability entries into the declared client
-     * capabilities, refusing an identifier declared on both sides.
-     *
      * @throws DuplicateExtensionException
      */
     private function buildClientCapabilities(): ClientCapabilities

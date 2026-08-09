@@ -25,9 +25,7 @@ use Nexus\Mcp\Core\Auth\MetadataReader;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 
 /**
- * Resolves the `client_id` to present to an authorization server, walking the mechanisms in the priority
- * order the spec fixes: pre-registered credentials, then a Client ID Metadata Document, then Dynamic Client
- * Registration.
+ * Resolver for the `client_id` an MCP client presents to an authorization server.
  *
  * @internal
  *
@@ -57,8 +55,6 @@ final readonly class ClientRegistrar
 
         if (null !== $preRegistered) {
             if (null === $preRegistered->issuer) {
-                // Unbound credentials name no server of their own, so they take the discovered one and
-                // everything downstream sees a bound registration either way.
                 return new ClientRegistration(
                     $preRegistered->clientId,
                     $metadata->issuer,
@@ -77,8 +73,6 @@ final readonly class ClientRegistrar
         $documentUrl = $options->clientIdMetadataDocumentUrl;
 
         if (null !== $documentUrl && true === $metadata->clientIdMetadataDocumentSupported) {
-            // A document URL is resolved by the authorization server on demand, so it is portable across
-            // servers and never stored against one.
             return new ClientRegistration($documentUrl, $metadata->issuer);
         }
 
@@ -94,9 +88,6 @@ final readonly class ClientRegistrar
         return $registration;
     }
 
-    /**
-     * Drops the registration held for an authorization server, so the next resolution registers again.
-     */
     public function forget(string $issuer): void
     {
         $this->store->forget($issuer);
@@ -113,8 +104,6 @@ final readonly class ClientRegistrar
             throw new ClientRegistrationRequiredException($metadata->issuer);
         }
 
-        // RFC 7591 registers an array of redirect URIs, and the grant types below name the flow that lands
-        // on one, so a client that has no redirect URI has nothing to register here.
         $redirectUri = $options->redirectUri;
         Assert::that($redirectUri)->isNonEmptyString('Dynamic Client Registration needs a redirect URI, and the authorization options carry none.');
 
@@ -150,10 +139,6 @@ final readonly class ClientRegistrar
         );
     }
 
-    /**
-     * The token-endpoint authentication an unbound registration uses. A caller who left the method at its
-     * default while supplying a secret gets RFC 7591's, the same one dynamic registration assumes.
-     */
     private static function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
     {
         if (TokenEndpointAuthMethod::None !== $registration->tokenEndpointAuthMethod || null === $registration->clientSecret) {
@@ -171,13 +156,11 @@ final readonly class ClientRegistrar
         $declared = MetadataReader::readString($data, 'token_endpoint_auth_method', self::LABEL);
 
         if (null === $declared) {
-            // RFC 7591 registers `client_secret_basic` by default, which only applies once a secret exists.
             return null === $secret ? TokenEndpointAuthMethod::None : TokenEndpointAuthMethod::ClientSecretBasic;
         }
 
         $method = TokenEndpointAuthMethod::tryFrom($declared);
 
-        // A dynamic registration carries no signing key, so JWT client authentication cannot be honoured.
         if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
             throw new ClientRegistrationFailedException(
                 'invalid_client_metadata',

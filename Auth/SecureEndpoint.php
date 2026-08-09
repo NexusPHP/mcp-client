@@ -17,7 +17,7 @@ use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 
 /**
- * Holds the URLs an MCP client is steered at to the transport security the spec fixes for each of them.
+ * Transport-security checks for the URLs an MCP client is steered at.
  *
  * @internal
  *
@@ -26,8 +26,7 @@ use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 final class SecureEndpoint
 {
     /**
-     * Verifies the redirect URI the operator configured, which the spec alone among these lets address a
-     * loopback listener over plain HTTP.
+     * Verifies the redirect URI, the one URL the spec lets address a loopback listener over plain HTTP.
      */
     public static function verifyRedirectUri(string $url): void
     {
@@ -46,14 +45,6 @@ final class SecureEndpoint
     }
 
     /**
-     * Verifies a URL an authorization server publishes for itself, which the spec holds to HTTPS. This
-     * checks the transport the URL names, not where it leads: a private-network or link-local destination
-     * reached over HTTPS is admitted.
-     *
-     * A fragment is refused alongside cleartext because this client appends `state` and `code_challenge` to
-     * the authorization endpoint as query parameters, which a fragment would swallow before the server saw
-     * them.
-     *
      * @param bool $allowLoopback Admits cleartext on a loopback host, which the spec does not exempt. Off
      *                            unless the caller opted in through `AuthorizationOptions`.
      */
@@ -79,8 +70,7 @@ final class SecureEndpoint
     }
 
     /**
-     * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a path so
-     * one host can serve more than one document.
+     * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a path.
      *
      * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
      */
@@ -135,7 +125,6 @@ final class SecureEndpoint
 
     private static function isLoopback(string $host): bool
     {
-        // A bracketed IPv6 literal reaches here with its delimiters still attached.
         $host = trim($host, '[]');
 
         return 'localhost' === $host

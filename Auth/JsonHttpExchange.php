@@ -24,16 +24,12 @@ use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 
 /**
- * Carries the JSON request and response pairs an OAuth flow is made of, bounding each answer by a byte cap
- * and pinning it to the URL the request was sent to.
+ * JSON request and response exchange used by the OAuth flow.
  *
  * @internal
  */
 final readonly class JsonHttpExchange
 {
-    /**
-     * Bytes of an answer buffered before the endpoint is treated as unusable.
-     */
     public const int MAX_RESPONSE_BYTES = 65_536;
 
     public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
@@ -41,8 +37,6 @@ final readonly class JsonHttpExchange
     }
 
     /**
-     * Sends a request and buffers its answer.
-     *
      * @return array{int, string} The status and the buffered payload
      */
     public function send(Request $request, Cancellation $cancellation): array
@@ -55,8 +49,6 @@ final readonly class JsonHttpExchange
         $response = $this->client->request($request, $cancellation);
         $answered = (string) $response->getRequest()->getUri();
 
-        // An HTTP client that follows redirects re-checks neither the scheme nor the host of where it
-        // landed, so nothing read from a redirected answer can be trusted.
         if ($answered !== $sent) {
             throw new RedirectRefusedException($sent, $answered);
         }

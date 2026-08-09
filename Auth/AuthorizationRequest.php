@@ -19,7 +19,7 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 
 /**
- * Builds the OAuth 2.1 authorization request an MCP client opens in a user-agent.
+ * Builder for the OAuth 2.1 authorization request an MCP client opens in a user-agent.
  *
  * @internal
  *
@@ -63,8 +63,6 @@ final class AuthorizationRequest
             $parameters['scope'] = $scope;
         }
 
-        // An authorization server that can answer from a prior grant usually will, and a silent answer
-        // carries no refresh token however loudly `offline_access` was asked for.
         if ($scopes->contains(ScopeSet::OFFLINE_ACCESS)) {
             $parameters['prompt'] = 'consent';
         }
@@ -84,7 +82,6 @@ final class AuthorizationRequest
      */
     private static function appendQuery(string $endpoint, array $parameters): string
     {
-        // RFC 6749 lets the authorization endpoint carry its own query, which must survive the append.
         return $endpoint.(str_contains($endpoint, '?') ? '&' : '?').http_build_query($parameters);
     }
 }

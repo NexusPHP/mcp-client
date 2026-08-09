@@ -17,8 +17,6 @@ use Nexus\Mcp\Core\Schema\RequestId;
 
 /**
  * The `subscriptions/listen` streams the client currently holds open, keyed by subscription id.
- * `Client::listen()` registers one for the life of a stream, the dispatcher reads it when a
- * notification arrives tagged with that id, and a reconnect replays it against the fresh peer.
  *
  * @internal
  */
@@ -35,8 +33,7 @@ final class SubscriptionRegistry
     }
 
     /**
-     * Removes the stream for `$id` and returns it, or `null` if it was already gone. Membership is what
-     * marks a stream as still owing its caller an outcome, so every settlement claims it through here.
+     * Removes the stream for `$id` and returns it, or `null` when it was already gone.
      */
     public function forget(RequestId $id): ?OpenSubscription
     {
@@ -63,9 +60,6 @@ final class SubscriptionRegistry
     }
 
     /**
-     * Empties the registry and returns what it held, so a caller settling every stream cannot race a
-     * re-entrant `unregister()` from the settlement itself.
-     *
      * @return list<OpenSubscription>
      */
     public function drain(): array

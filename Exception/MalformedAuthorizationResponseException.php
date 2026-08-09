@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization or metadata endpoint answers with something other than a JSON object, which
- * is how a broken or hostile server surfaces where the OAuth error codes cannot.
+ * Thrown when an authorization or metadata endpoint answers with something other than a JSON object.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
  */

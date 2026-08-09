@@ -33,25 +33,14 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * HTTP client decorator that presents an OAuth 2.1 bearer token to a protected MCP server, obtains one when
- * challenged, and steps its scopes up when the server says they are insufficient.
- *
- * Hand it to `StreamableHttpClientTransport` in place of the default client.
+ * HTTP client decorator that presents an OAuth 2.1 bearer token to a protected MCP server.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#access-token-usage
  */
 final class AuthorizedHttpClient implements DelegateHttpClient
 {
     private const string INSUFFICIENT_SCOPE = 'insufficient_scope';
-
-    /**
-     * Bytes of a challenge body drained before the connection carrying it is given up on instead.
-     */
     private const int MAX_CHALLENGE_BODY_BYTES = 8_192;
-
-    /**
-     * Matches the redirect budget `HttpClientBuilder::buildDefault()` applies to uncredentialed traffic.
-     */
     private const int MAX_REDIRECTS = 10;
 
     private readonly ResourceIdentifier $resource;
@@ -88,9 +77,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
         $this->resource = new ResourceIdentifier($resource);
 
-        // Metadata is public, so following a redirect to it leaks nothing. Everything that carries a
-        // credential runs on the sealed client instead, which hands a 3xx back rather than replaying the
-        // request against wherever it points.
         $this->client = $clientBuilder->build();
         $this->sealedClient = $clientBuilder->followRedirects(0)->build();
 
@@ -119,24 +105,16 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $scopeUpgrades = 0;
         $reauthorized = false;
 
-        // A token is minted for one MCP server, and a caller may hand this decorator a request aimed
-        // anywhere, so the header goes on only where the token belongs.
         $bearsToken = $this->resource->sharesOriginWith((string) $request->getUri());
 
         while (true) {
             $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
             $attempt = self::authorizeRequest($request, $token);
-            // Control of the hops belongs to this origin, not to whether a token happened to be ready.
-            // The bare first request carries whatever headers the caller set, and the challenge it comes
-            // back with steers the grant, so both need the same seal.
             $response = $bearsToken
                 ? $this->followWithinOrigin($attempt, $cancellation)
                 : $this->client->request($attempt, $cancellation);
 
             if (! $bearsToken) {
-                // A challenge from anywhere but this MCP server steers nothing here. Its scopes would reach
-                // the consent screen at the real authorization server, and the token that consent granted
-                // would replace the one held for this one.
                 return $response;
             }
 
@@ -149,17 +127,14 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             $challenge = self::readChallenge($response);
 
             if (HttpStatus::Forbidden->value === $status) {
-                // Only an insufficient-scope challenge is recoverable. Every other 403 is the server's answer.
                 if (null === $challenge || self::INSUFFICIENT_SCOPE !== $challenge->readParameter('error')) {
                     return $response;
                 }
 
                 $challenged = ScopeSet::parse($challenge->readParameter('scope'));
 
-                // The caller asked to be told rather than asked, so neither the retry budget nor whether
-                // another round would help has any bearing on what happens next.
                 if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
-                    self::report($response, $challenged, $cancellation);
+                    self::reportInsufficientScope($response, $challenged, $cancellation);
                 }
 
                 if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
@@ -168,21 +143,16 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'attempts' => $scopeUpgrades,
                     ]);
 
-                    // The union across every round is what a fresh grant would actually need. Reporting
-                    // only the last challenge would send a re-requesting caller after a narrower token.
-                    self::report($response, $additionalScopes->mergeWith($challenged), $cancellation);
+                    self::reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation);
                 }
 
-                // Granting again would produce the same token and the same answer, so the only thing another
-                // round buys is a second consent screen. What settles that is the token this attempt
-                // presented: what the client was granted at some point says nothing about what it holds now.
                 if ((new ScopeSet($token->scopes ?? []))->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
                         'scopes' => $challenged->toParameter() ?? 'no scope at all',
                     ]);
 
-                    self::report($response, $challenged, $cancellation);
+                    self::reportInsufficientScope($response, $challenged, $cancellation);
                 }
 
                 ++$scopeUpgrades;
@@ -193,7 +163,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 continue;
             }
 
-            // A second challenge to a token just obtained is the server's answer, not a stale token.
             if ($reauthorized) {
                 return $response;
             }
@@ -205,10 +174,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     }
 
     /**
-     * Sends a credentialed request, resolving redirects here rather than letting the client replay the
-     * credential wherever a `Location` points. An origin carries its scheme, so a downgrade to cleartext is
-     * a hop off origin like any other and is refused before anything travels.
-     *
      * @throws RedirectRefusedException
      */
     private function followWithinOrigin(Request $request, Cancellation $cancellation): Response
@@ -242,17 +207,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         throw new TooManyRedirectsException($response);
     }
 
-    /**
-     * Resolves a redirect answer's target against the request that produced it, or `null` when the answer
-     * is not a redirect.
-     */
     private static function readRedirectTarget(Response $response, Request $request): ?string
     {
         $status = $response->getStatus();
 
-        // The rules `FollowRedirects` applies, so sealing the client changes which client resolves a hop
-        // rather than which answers count as one. A 307 or 308 preserves the method, which the spec forbids
-        // replaying without asking, so neither is followed for anything but a GET.
         if (! \in_array($status, [301, 302, 303, 307, 308], true)) {
             return null;
         }
@@ -270,8 +228,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $location = $locations[0];
 
         try {
-            // `Request` parses the target with the same URI implementation the client uses, and its own
-            // resolver settles a relative one, so a sealed hop lands where an unsealed one would.
             $target = new Request($location);
         } catch (\Exception) {
             return null;
@@ -280,10 +236,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return (string) FollowRedirects::resolve($request->getUri(), $target->getUri());
     }
 
-    /**
-     * Rewrites a request for its redirect target: the hop is a GET carrying none of the body framing the
-     * original had. No `Referer` is added, where the client's own follower would.
-     */
     private static function cloneForRedirect(Request $request, string $location): Request
     {
         $redirected = clone $request;
@@ -296,27 +248,19 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return $redirected;
     }
 
-    /**
-     * Drains the unwinnable challenge and reports it to the caller.
-     */
-    private static function report(Response $response, ScopeSet $challenged, Cancellation $cancellation): never
+    private static function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation): never
     {
         self::drain($response, $cancellation);
 
         throw new InsufficientScopeException($challenged->values);
     }
 
-    /**
-     * Reads a challenge body to its end so its connection returns to the pool. An undrained body cancels
-     * instead, which tears the connection down for the whole of the authorization flow, user included.
-     */
     private static function drain(Response $response, Cancellation $cancellation): void
     {
         try {
             $response->getBody()->buffer($cancellation, limit: self::MAX_CHALLENGE_BODY_BYTES);
         } catch (HttpException|StreamException) {
-            // Losing the body of a challenge is never a reason to abandon the recovery it asked for. A
-            // cancellation propagates instead: the caller stopped waiting, and the recovery goes with it.
+            // Losing a challenge body is no reason to abandon the recovery it asked for, where a cancellation propagates instead.
         }
     }
 

@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Auth;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 
 /**
- * An authorization request awaiting the user-agent: the URL to open, plus the per-request state the client
- * records before redirecting so it can validate the response.
+ * An authorization request awaiting the user-agent.
  */
 final readonly class AuthorizationRedirect
 {

@@ -20,8 +20,7 @@ use Amp\CancelledException;
 use Amp\Process\ProcessException;
 
 /**
- * A running MCP server subprocess: its three standard streams, its identifier, and the two
- * lifecycle operations a transport performs on it.
+ * A running MCP server subprocess.
  *
  * @internal
  */
@@ -36,8 +35,6 @@ interface SubprocessInterface
     public function getPid(): int;
 
     /**
-     * Awaits the exit and answers its status code.
-     *
      * @throws CancelledException
      * @throws ProcessException
      */

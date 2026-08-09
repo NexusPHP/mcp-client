@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\Cancellation;
 
 /**
- * How the client obtains an access token once discovery has run: the authorization-code round trip through
- * a user agent, or an unattended machine grant.
+ * Strategy for obtaining an access token once discovery has run.
  */
 interface GrantStrategyInterface
 {
@@ -27,8 +26,7 @@ interface GrantStrategyInterface
     public function grant(GrantContext $context, Cancellation $cancellation): AccessToken;
 
     /**
-     * Whether an expired token that carries no refresh token is renewed by running the grant again, rather
-     * than by sending the request bare and answering the challenge it draws.
+     * Whether an expired token that carries no refresh token is renewed by running the grant again.
      */
     public function renewsByFreshGrant(): bool;
 }

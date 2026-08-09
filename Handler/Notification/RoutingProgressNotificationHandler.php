@@ -19,9 +19,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 
 /**
- * Occupies the `notifications/progress` dispatch slot. Routes a notification to
- * the per-call listener registered for its token, or to the build-time fallback
- * handler when no listener matches.
+ * Notification handler routing `notifications/progress` to the per-call listener registered for its token.
  *
  * @internal
  *

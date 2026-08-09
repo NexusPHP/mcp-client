@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Builds the well-known metadata URLs an MCP client probes, in the priority order the spec fixes.
+ * Builder for the well-known metadata URLs an MCP client probes.
  *
  * @internal
  *
@@ -27,8 +27,8 @@ final class WellKnownUri
     private const string OPENID_CONFIGURATION = '/.well-known/openid-configuration';
 
     /**
-     * The Protected Resource Metadata URLs for an MCP endpoint, the path-scoped one first. An endpoint at
-     * the root has only the root form, and only that form keeps the resource identifier's query.
+     * The Protected Resource Metadata URLs for an MCP endpoint, the path-scoped one first and the only one
+     * keeping the resource identifier's query.
      *
      * @return list<string>
      */
@@ -42,8 +42,6 @@ final class WellKnownUri
 
         return [
             $origin.self::PROTECTED_RESOURCE.$path.$query,
-            // The root form is the URL RFC 9728 assigns to the resource at this origin's root. Carrying a
-            // path-scoped resource's query onto it would ask for the document of a different resource.
             $origin.self::PROTECTED_RESOURCE,
         ];
     }
@@ -56,7 +54,6 @@ final class WellKnownUri
      */
     public static function forAuthorizationServer(string $issuer): array
     {
-        // RFC 8414 forbids a query on an issuer identifier, so only the resource half carries one.
         [$origin, $path] = self::splitOrigin($issuer);
 
         if ('' === $path) {
@@ -73,19 +70,13 @@ final class WellKnownUri
         ];
     }
 
-    /**
-     * The resource identifier the origin-root well-known URL describes: the scheme, host and port of
-     * the given URI, without its path or query.
-     */
     public static function originOf(string $uri): string
     {
         return self::splitOrigin($uri)[0];
     }
 
     /**
-     * @return array{string, string, string} The origin, the path and the query, each empty when the URI
-     *                                       carries none. A resource identifier keeps its query, so the
-     *                                       document that describes it is asked for under the same one.
+     * @return array{string, string, string}
      */
     private static function splitOrigin(string $uri): array
     {

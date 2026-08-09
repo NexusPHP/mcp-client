@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server does not advertise the `S256` code challenge method, which MCP clients
- * must have before they may proceed.
+ * Thrown when an authorization server does not advertise the `S256` code challenge method MCP clients must have.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#authorization-code-protection
  */

@@ -14,9 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Holds the access tokens a client has obtained, keyed by the MCP server each token is bound to. The issuer
- * that minted a token travels on the token itself. Implementations are responsible for storing tokens
- * confidentially.
+ * Store for access tokens, keyed by the MCP server each is bound to.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#token-theft
  */

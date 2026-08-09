@@ -22,16 +22,8 @@ namespace Nexus\Mcp\Client\Auth;
  */
 final readonly class PkcePair
 {
-    /**
-     * The only challenge method MCP clients offer.
-     */
     public const string CHALLENGE_METHOD = 'S256';
-
-    /**
-     * Verifier entropy in bytes. Base64url encoding turns this into the 43 characters RFC 7636 sets as
-     * the minimum verifier length.
-     */
-    private const int VERIFIER_BYTES = 32;
+    private const int VERIFIER_ENTROPY_BYTES = 32;
 
     private function __construct(public string $verifier, public string $challenge)
     {
@@ -39,7 +31,7 @@ final readonly class PkcePair
 
     public static function generate(): self
     {
-        return self::fromVerifier(self::encode(random_bytes(self::VERIFIER_BYTES)));
+        return self::fromVerifier(self::encode(random_bytes(self::VERIFIER_ENTROPY_BYTES)));
     }
 
     public static function fromVerifier(string $verifier): self

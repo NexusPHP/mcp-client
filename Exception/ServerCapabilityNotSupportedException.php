@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when a request targets a capability the server did not advertise in its
- * `server/discover` result.
+ * Thrown when a request targets a capability the server did not advertise in its `server/discover` result.
  */
 final class ServerCapabilityNotSupportedException extends \LogicException implements McpExceptionInterface
 {

@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server offers no registration mechanism the client can use, so the host must
- * supply a client identifier itself.
+ * Thrown when an authorization server offers no registration mechanism the client can use.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
  */

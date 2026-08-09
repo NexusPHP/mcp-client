@@ -14,8 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Registration store that keeps registrations for the lifetime of the process only, so a restart registers
- * again rather than reusing an identifier it can no longer prove it owns.
+ * Registration store that keeps registrations for the lifetime of the process only.
  */
 final class InMemoryClientRegistrationStore implements ClientRegistrationStoreInterface
 {

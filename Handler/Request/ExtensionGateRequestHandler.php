@@ -22,9 +22,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\Result;
 
 /**
- * Refuses an extension-owned inbound request from a server whose discovered
- * capabilities did not advertise the extension. Before discovery there is
- * nothing to check against, so the request is served.
+ * Gate refusing an extension-owned inbound request from a server that did not advertise the extension.
  *
  * @internal
  *

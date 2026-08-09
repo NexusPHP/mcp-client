@@ -17,8 +17,7 @@ use Amp\Cancellation;
 use Nexus\Assert\Assert;
 
 /**
- * The OAuth 2.1 authorization-code grant: client registration where needed, the user-agent round trip, and
- * the code exchange.
+ * The OAuth 2.1 authorization-code grant.
  *
  * @internal
  *

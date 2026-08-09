@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server does not recognise the client identifier presented to it, which is how
- * a registration that has lapsed or been revoked surfaces.
+ * Thrown when an authorization server does not recognise the client identifier presented to it.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
  */

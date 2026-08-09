@@ -14,23 +14,18 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Holds the client identifiers obtained through Dynamic Client Registration, keyed by the authorization
- * server that issued them so credentials are never carried across a server change.
+ * Store for client identifiers, keyed by the authorization server that issued them.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding
  */
 interface ClientRegistrationStoreInterface
 {
     /**
-     * @param string $issuer Issuer identifier of the authorization server the registration belongs to
+     * @param string $issuer Issuer identifier of the authorization server the registration belongs to.
      */
     public function read(string $issuer): ?ClientRegistration;
 
     public function write(string $issuer, ClientRegistration $registration): void;
 
-    /**
-     * Drops a registration the authorization server no longer recognises, so the next resolution registers
-     * again rather than presenting an identifier that is spent.
-     */
     public function forget(string $issuer): void;
 }

@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization response cannot be trusted, because it answers a different request, names a
- * different issuer, or carries no authorization code.
+ * Thrown when an authorization response cannot be trusted.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc9207#section-2.4
  */

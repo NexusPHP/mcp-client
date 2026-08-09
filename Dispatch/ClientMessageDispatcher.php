@@ -50,10 +50,7 @@ use Psr\Log\NullLogger;
 use function Amp\async;
 
 /**
- * Client-side per-envelope inbound dispatch. Parses, classifies, and routes:
- * success/error response envelopes to `PendingOutboundRequests` for correlation,
- * peer-initiated requests to registered handlers, and notifications to their
- * handlers.
+ * Client-side per-envelope inbound dispatch.
  *
  * @internal
  */
@@ -119,9 +116,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 ['envelope' => $envelope, 'exception' => $e],
             );
 
-            // §4.1 splits notification from request on the envelope's id, not on the method it names. One
-            // carrying an id is a request whatever it is called, and §5 obliges a reply echoing that id.
-            // One without an id is a notification whatever it is called, and must go unanswered.
+            // §4.1 splits notification from request on the envelope's id, not on the method it names, so an id-less one goes unanswered.
             if ($isNotification) {
                 return;
             }
@@ -243,8 +238,6 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             try {
                 $sender = new RequestBoundSender($transport, $request->id);
 
-                // Inbound server-to-client requests use standalone params with no
-                // client `_meta`, so they expose no progress token to the handler.
                 $context = new ClientContext(
                     $request->id,
                     $cancellation,
@@ -295,9 +288,6 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     }
 
     /**
-     * Sends `$response` unless the peer abandoned the request first. The spec forbids answering a request
-     * once its cancellation was requested.
-     *
      * @param non-empty-string $method
      */
     private function sendUnlessCancelled(
@@ -322,16 +312,11 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     {
         $method = $notification::getMethod();
         $subscriptionId = $notification->params->meta->subscriptionId;
-
-        // The spec names progress as the example of a notification never delivered on a stream, and its
-        // per-call route extends the request deadline, so a stray tag must not divert it.
         $subscription = null === $subscriptionId || ProgressNotification::getMethod() === $method
             ? null
             : $this->subscriptions->get($subscriptionId);
 
         if (null !== $subscription) {
-            // The client asked for this notification by subscribing, so the stream that requested it is
-            // the more specific route and the method handler does not also see it.
             $listener = $subscription->onNotification;
             $this->coroutines->track(async(function () use ($listener, $notification, $method): void {
                 try {

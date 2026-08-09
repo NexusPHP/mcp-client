@@ -55,8 +55,6 @@ final readonly class AuthorizationOptions
             SecureEndpoint::verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
         }
 
-        // Presenting a JWT client assertion needs a signing key, which no registration carries. The client
-        // credentials extension takes its key alongside the identifier instead.
         if (TokenEndpointAuthMethod::PrivateKeyJwt === $preRegistered?->tokenEndpointAuthMethod) {
             throw new \InvalidArgumentException(\sprintf(
                 'Pre-registered credentials cannot authenticate with "%s". Configure a ClientCredentialsGrant with a PrivateKeyJwtCredential instead.',

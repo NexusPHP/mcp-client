@@ -16,8 +16,7 @@ namespace Nexus\Mcp\Client\Exception;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 
 /**
- * Thrown when an authorization server answers an authorization request with an OAuth error rather than a
- * code.
+ * Thrown when an authorization server answers an authorization request with an OAuth error rather than a code.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2.1
  */

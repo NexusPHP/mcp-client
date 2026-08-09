@@ -16,9 +16,7 @@ namespace Nexus\Mcp\Client\Dispatch;
 use Nexus\Mcp\Core\Schema\ProgressToken;
 
 /**
- * Per-call progress listeners keyed by progress token. `Client::callTool()`
- * registers a listener for the duration of a call. The routing progress
- * handler reads it when a matching `notifications/progress` arrives.
+ * Per-call progress listeners keyed by progress token.
  *
  * @internal
  */

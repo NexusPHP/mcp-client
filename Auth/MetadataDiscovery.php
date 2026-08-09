@@ -29,8 +29,7 @@ use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 use Nexus\Mcp\Core\Http\HttpStatus;
 
 /**
- * Locates the authorization server protecting an MCP server, by reading its Protected Resource Metadata and
- * then the metadata of the authorization server it names.
+ * Discovery of the authorization server protecting an MCP server.
  *
  * @internal
  *
@@ -53,7 +52,7 @@ final readonly class MetadataDiscovery
 
     /**
      * Reads the Protected Resource Metadata for an MCP server, preferring the URL a `WWW-Authenticate`
-     * challenge advertised and falling back to the well-known URLs, path-scoped before root.
+     * challenge advertised over the well-known URLs.
      */
     public function discoverResource(
         ResourceIdentifier $resource,
@@ -68,9 +67,6 @@ final readonly class MetadataDiscovery
         }
 
         foreach ($candidates as $url) {
-            // A challenge that advertises a document on another origin is naming one the MCP server does
-            // not own. That candidate is dropped rather than trusted, and rather than taken as a reason to
-            // abandon the well-known URLs the spec mandates falling back to.
             if (! $resource->sharesOriginWith($url)) {
                 continue;
             }
@@ -97,14 +93,8 @@ final readonly class MetadataDiscovery
         throw new AuthorizationDiscoveryFailedException('protected resource metadata', $resource->value, $candidates);
     }
 
-    /**
-     * Reads an authorization server's metadata, trying the RFC 8414 and OpenID Connect well-known URLs in
-     * the order the spec fixes.
-     */
     public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
     {
-        // Every candidate inherits the issuer's scheme and authority, so holding the issuer to HTTPS holds
-        // all of them, and it does so before an unusable one reaches the URL builder.
         SecureEndpoint::verifyAuthorizationServerUrl($issuer, 'authorization server issuer', $this->allowInsecureLoopback);
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
@@ -134,12 +124,8 @@ final readonly class MetadataDiscovery
     }
 
     /**
-     * Whether a document naming `$named` may be trusted to describe `$resource`.
-     *
-     * The candidate list includes the origin-root well-known URL, and RFC 9728 assigns that URL to the
-     * resource at the origin, so the document it serves names the origin rather than the path-scoped
-     * endpoint. Accepting it is what makes that fallback reachable. A document naming any other origin
-     * belongs to a resource server this one does not own and is refused.
+     * Whether a document naming `$named` may be trusted to describe `$resource`, which RFC 9728 extends to
+     * the origin the root well-known URL is assigned to.
      */
     private static function describesResource(string $named, string $resource): bool
     {
@@ -156,8 +142,6 @@ final readonly class MetadataDiscovery
 
             return HttpStatus::Ok->value === $status ? JsonHttpExchange::decode($payload, $label) : null;
         } catch (\InvalidArgumentException|MalformedAuthorizationResponseException|RedirectRefusedException|ResponseTooLargeException) {
-            // The spec fixes an order of candidates to fall back through, so nothing one of them answers
-            // ends the search.
             return null;
         }
     }
@@ -190,10 +174,6 @@ final readonly class MetadataDiscovery
         }
     }
 
-    /**
-     * Turns a field-level parse failure into one of this SDK's own exceptions, so a document a peer shaped
-     * cannot surface as an argument fault the caller has no contract for.
-     */
     private static function describeUnreadable(string $label, \InvalidArgumentException $cause): UntrustedAuthorizationMetadataException
     {
         return new UntrustedAuthorizationMetadataException(

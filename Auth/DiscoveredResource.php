@@ -17,8 +17,7 @@ use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 
 /**
- * What discovery found for one MCP server: its own Protected Resource Metadata and the metadata of the
- * authorization server it named.
+ * One MCP server's Protected Resource Metadata paired with the metadata of the authorization server it names.
  */
 final readonly class DiscoveredResource
 {
