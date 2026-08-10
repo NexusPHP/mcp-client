@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when an authorization server does not advertise the `S256` code challenge method MCP clients must have.
@@ -26,7 +27,7 @@ final class PkceNotSupportedException extends \RuntimeException implements McpEx
     {
         parent::__construct(\sprintf(
             'The authorization server "%s" does not advertise the S256 code challenge method, so authorization cannot proceed.',
-            $issuer,
+            SafeDisplay::sanitiseCause($issuer),
         ));
     }
 }

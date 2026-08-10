@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when an MCP server answers that the token's scopes are insufficient and no scope upgrade is available.
@@ -23,12 +24,15 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 final class InsufficientScopeException extends \RuntimeException implements McpExceptionInterface
 {
     /**
-     * @param list<non-empty-string> $required Scopes the challenge named, empty when it named none
+     * @param list<non-empty-string> $required Scopes the challenge named that this client can use
+     * @param bool                   $named    Whether the challenge named a scope at all
      */
-    public function __construct(public readonly array $required)
+    public function __construct(public readonly array $required, bool $named = false)
     {
-        parent::__construct([] === $required
-            ? 'The MCP server answered insufficient_scope without naming a scope.'
-            : \sprintf('The MCP server requires the scope "%s".', implode(' ', $required)));
+        parent::__construct(match (true) {
+            [] !== $required => \sprintf('The MCP server requires the scope "%s".', SafeDisplay::sanitiseCause(implode(' ', $required))),
+            $named => 'The MCP server named only scopes that are not RFC 6749 scope-tokens, so none can be requested.',
+            default => 'The MCP server answered insufficient_scope without naming a scope.',
+        });
     }
 }

@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when an authorization server offers no registration mechanism the client can use.
@@ -26,7 +27,7 @@ final class ClientRegistrationRequiredException extends \RuntimeException implem
     {
         parent::__construct(\sprintf(
             'The authorization server "%s" supports neither Client ID Metadata Documents nor Dynamic Client Registration, so a client identifier must be supplied for it.',
-            $issuer,
+            SafeDisplay::sanitiseCause($issuer),
         ));
     }
 }

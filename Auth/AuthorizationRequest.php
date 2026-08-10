@@ -17,6 +17,7 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Builder for the OAuth 2.1 authorization request an MCP client opens in a user-agent.
@@ -40,7 +41,7 @@ final class AuthorizationRequest
         $endpoint = $metadata->authorizationEndpoint;
         Assert::that($endpoint)->isNonEmptyString(\sprintf(
             'The authorization server "%s" publishes no authorization endpoint.',
-            $metadata->issuer,
+            SafeDisplay::sanitiseCause($metadata->issuer),
         ));
         SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'authorization endpoint', $allowInsecureLoopback);
 

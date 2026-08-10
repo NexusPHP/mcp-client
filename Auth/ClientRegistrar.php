@@ -23,6 +23,7 @@ use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Resolver for the `client_id` an MCP client presents to an authorization server.
@@ -164,7 +165,7 @@ final readonly class ClientRegistrar
         if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
             throw new ClientRegistrationFailedException(
                 'invalid_client_metadata',
-                \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', $declared),
+                \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', SafeDisplay::sanitise($declared)),
             );
         }
 

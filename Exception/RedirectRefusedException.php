@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when a response arrived from a URL other than the one the request was sent to.
@@ -27,7 +28,7 @@ final class RedirectRefusedException extends \RuntimeException implements McpExc
         parent::__construct(\sprintf(
             'The request to "%s" was answered from "%s" after a redirect. Credentials are never carried across one.',
             $sent,
-            $answered,
+            SafeDisplay::sanitiseCause($answered),
         ));
     }
 }

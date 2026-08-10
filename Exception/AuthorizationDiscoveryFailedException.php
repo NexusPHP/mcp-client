@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when none of the well-known URLs a client probes serves the metadata document it needs.
@@ -30,8 +31,8 @@ final class AuthorizationDiscoveryFailedException extends \RuntimeException impl
         parent::__construct(\sprintf(
             'No %s was served for "%s". Probed: %s.',
             $document,
-            $subject,
-            implode(', ', $probed),
+            SafeDisplay::sanitiseCause($subject),
+            implode(', ', array_map(static fn(string $url): string => SafeDisplay::sanitiseCause($url), $probed)),
         ));
     }
 }

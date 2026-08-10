@@ -27,6 +27,7 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
 use Nexus\Mcp\Core\Http\HttpStatus;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Discovery of the authorization server protecting an MCP server.
@@ -83,7 +84,7 @@ final readonly class MetadataDiscovery
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
                     'the document served for "%s" names the resource "%s".',
                     $resource->value,
-                    $metadata->resource->value,
+                    SafeDisplay::sanitiseCause($metadata->resource->value),
                 ));
             }
 
@@ -110,8 +111,8 @@ final readonly class MetadataDiscovery
             if ($metadata->issuer !== $issuer) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
                     'the document served for "%s" names the issuer "%s".',
-                    $issuer,
-                    $metadata->issuer,
+                    SafeDisplay::sanitiseCause($issuer),
+                    SafeDisplay::sanitiseCause($metadata->issuer),
                 ));
             }
 

@@ -28,6 +28,7 @@ use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Http\HttpStatus;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Client for an authorization server's token endpoint.
@@ -101,7 +102,7 @@ final readonly class TokenEndpoint
         $endpoint = $metadata->tokenEndpoint;
         Assert::that($endpoint)->isNonEmptyString(\sprintf(
             'The authorization server "%s" publishes no token endpoint.',
-            $metadata->issuer,
+            SafeDisplay::sanitiseCause($metadata->issuer),
         ));
         SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'token endpoint', $this->allowInsecureLoopback);
 
@@ -112,7 +113,7 @@ final readonly class TokenEndpoint
         } elseif (TokenEndpointAuthMethod::PrivateKeyJwt === $registration->tokenEndpointAuthMethod) {
             Assert::that($parameters)->hasOffset('client_assertion', \sprintf(
                 'Client "%s" must carry a "client_assertion" parameter to authenticate with "private_key_jwt".',
-                $registration->clientId,
+                SafeDisplay::sanitise($registration->clientId),
             ));
         } else {
             $parameters['client_id'] = $registration->clientId;
@@ -167,7 +168,7 @@ final readonly class TokenEndpoint
         if (strcasecmp($type, WwwAuthenticateChallenge::BEARER_SCHEME) !== 0) {
             throw new TokenRequestFailedException(
                 'unsupported_token_type',
-                \sprintf('MCP clients can only present bearer tokens, "%s" given.', $type),
+                \sprintf('MCP clients can only present bearer tokens, "%s" given.', SafeDisplay::sanitise($type)),
             );
         }
 
@@ -198,7 +199,7 @@ final readonly class TokenEndpoint
     {
         return \sprintf(
             'Client "%s" must carry a secret to authenticate with "%s".',
-            $registration->clientId,
+            SafeDisplay::sanitise($registration->clientId),
             $registration->tokenEndpointAuthMethod->value,
         );
     }

@@ -25,6 +25,7 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Revolt\EventLoop\FiberLocal;
@@ -217,7 +218,7 @@ final class AuthorizationCoordinator
 
         $this->logger->info('Authorized {resource} at {issuer}.', [
             'resource' => $this->resource->value,
-            'issuer' => $server->issuer,
+            'issuer' => SafeDisplay::sanitiseCause($server->issuer),
         ]);
 
         return $token;
@@ -250,7 +251,7 @@ final class AuthorizationCoordinator
         } catch (McpExceptionInterface $e) {
             $this->logger->info('The token for {resource} could not be checked against any metadata. {reason}', [
                 'resource' => $this->resource->value,
-                'reason' => $e->getMessage(),
+                'reason' => SafeDisplay::sanitiseCause($e->getMessage()),
             ]);
 
             return null;
@@ -261,7 +262,7 @@ final class AuthorizationCoordinator
         if ($server->issuer !== $token->issuer) {
             $this->logger->info('The token for {resource} was issued by {issuer}, which no longer serves it.', [
                 'resource' => $this->resource->value,
-                'issuer' => $token->issuer,
+                'issuer' => SafeDisplay::sanitiseCause($token->issuer),
             ]);
             $this->granted = new ScopeSet();
             $this->discovered = null;
@@ -302,7 +303,7 @@ final class AuthorizationCoordinator
 
             $this->logger->info('The token for {resource} could not be renewed, so a new authorization is needed. {reason}', [
                 'resource' => $this->resource->value,
-                'reason' => $e->getMessage(),
+                'reason' => SafeDisplay::sanitiseCause($e->getMessage()),
             ]);
             $this->giveUpOnToken();
 

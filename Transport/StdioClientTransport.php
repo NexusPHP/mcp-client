@@ -17,7 +17,7 @@ use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\Process\ProcessException;
 use Nexus\Assert\Assert;
-use Nexus\Mcp\Core\JsonRpc\SafeDisplay;
+use Nexus\Mcp\Core\SafeDisplay;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Transport\LineDuplex;
 use Nexus\Mcp\Core\Transport\LineReader;

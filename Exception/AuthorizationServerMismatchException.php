@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Exception;
 
 use Nexus\Mcp\Core\Exception\McpExceptionInterface;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Thrown when supplied client credentials belong to an authorization server other than the one the protected
@@ -28,7 +29,7 @@ final class AuthorizationServerMismatchException extends \RuntimeException imple
         parent::__construct(\sprintf(
             'The supplied client credentials were registered with "%s" but the protected resource now names "%s", and credentials are not portable between authorization servers.',
             $registeredIssuer,
-            $currentIssuer,
+            SafeDisplay::sanitiseCause($currentIssuer),
         ));
     }
 }

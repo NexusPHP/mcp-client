@@ -34,6 +34,7 @@ use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Http\ParameterHeaderBinding;
 use Nexus\Mcp\Core\Http\ParameterHeaders;
 use Nexus\Mcp\Core\Http\ParameterHeaderScanner;
+use Nexus\Mcp\Core\SafeDisplay;
 use Nexus\Mcp\Core\Schema\ClientCapabilities;
 use Nexus\Mcp\Core\Schema\Cursor;
 use Nexus\Mcp\Core\Schema\Enum\ProtocolErrorCode;
@@ -699,7 +700,7 @@ final class Client
                 unset($this->toolHeaderBindings[$name]);
                 $this->logger->warning(
                     'Server sent cursor {cursor} again while re-listing tool {tool}, first seen on page {page}, so the refresh stopped.',
-                    ['cursor' => $cursor->cursor, 'tool' => $name, 'page' => $seen[$cursor->cursor]],
+                    ['cursor' => SafeDisplay::sanitise($cursor->cursor), 'tool' => $name, 'page' => $seen[$cursor->cursor]],
                 );
 
                 return;
@@ -811,7 +812,7 @@ final class Client
 
                 $this->logger->info(
                     'Retrying request {id} as {retry}: the server does not support {requested}.',
-                    ['id' => $request->id->id, 'retry' => $retry->id->id, 'requested' => $e->error->message],
+                    ['id' => $request->id->id, 'retry' => $retry->id->id, 'requested' => SafeDisplay::sanitiseCause($e->error->message)],
                 );
 
                 return $this->exchange($retry, $response, $context, $deadline);
@@ -977,9 +978,12 @@ final class Client
             if (! $scan->valid) {
                 unset($this->toolHeaderBindings[$tool->name]);
 
+                $reason = $scan->reason;
+                \assert(\is_string($reason));
+
                 $this->logger->warning(
                     'Excluding tool {tool} from the listing: its "x-mcp-header" declarations are invalid.',
-                    ['tool' => $tool->name, 'reason' => $scan->reason],
+                    ['tool' => SafeDisplay::sanitise($tool->name), 'reason' => SafeDisplay::sanitiseCause($reason)],
                 );
 
                 continue;

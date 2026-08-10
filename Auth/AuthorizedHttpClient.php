@@ -29,6 +29,7 @@ use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Http\HttpStatus;
+use Nexus\Mcp\Core\SafeDisplay;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -131,10 +132,11 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                     return $response;
                 }
 
-                $challenged = ScopeSet::parse($challenge->readParameter('scope'));
+                $declaredScope = $challenge->readParameter('scope');
+                $challenged = ScopeSet::parse($declaredScope);
 
                 if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
-                    self::reportInsufficientScope($response, $challenged, $cancellation);
+                    self::reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
                 }
 
                 if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
@@ -143,16 +145,18 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'attempts' => $scopeUpgrades,
                     ]);
 
-                    self::reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation);
+                    self::reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation, null !== $declaredScope);
                 }
 
                 if ((new ScopeSet($token->scopes ?? []))->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
-                        'scopes' => $challenged->toParameter() ?? 'no scope at all',
+                        'scopes' => SafeDisplay::sanitiseCause(
+                            $challenged->toParameter() ?? self::describeUnusableChallenge($declaredScope),
+                        ),
                     ]);
 
-                    self::reportInsufficientScope($response, $challenged, $cancellation);
+                    self::reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
                 }
 
                 ++$scopeUpgrades;
@@ -248,11 +252,19 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return $redirected;
     }
 
-    private static function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation): never
+    /**
+     * @return non-empty-string
+     */
+    private static function describeUnusableChallenge(?string $declaredScope): string
+    {
+        return null === $declaredScope ? 'no scope at all' : 'only scopes that are not RFC 6749 scope-tokens';
+    }
+
+    private static function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation, bool $named): never
     {
         self::drain($response, $cancellation);
 
-        throw new InsufficientScopeException($challenged->values);
+        throw new InsufficientScopeException($challenged->values, $named);
     }
 
     private static function drain(Response $response, Cancellation $cancellation): void

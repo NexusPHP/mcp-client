@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * Transport-security checks for the URLs an MCP client is steered at.
@@ -56,7 +57,7 @@ final class SecureEndpoint
             throw new UntrustedAuthorizationMetadataException(\sprintf(
                 'the %s "%s" is not an absolute HTTPS URL.',
                 $label,
-                $url,
+                SafeDisplay::sanitiseCause($url),
             ));
         }
 
@@ -64,7 +65,7 @@ final class SecureEndpoint
             throw new UntrustedAuthorizationMetadataException(\sprintf(
                 'the %s "%s" carries a fragment.',
                 $label,
-                $url,
+                SafeDisplay::sanitiseCause($url),
             ));
         }
     }

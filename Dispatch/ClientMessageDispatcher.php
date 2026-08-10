@@ -34,6 +34,7 @@ use Nexus\Mcp\Core\Handler\RequestHandlerInterface;
 use Nexus\Mcp\Core\JsonRpc\JsonRpcMessageParser;
 use Nexus\Mcp\Core\JsonRpc\ResultResponseFactory;
 use Nexus\Mcp\Core\JsonRpc\UnparsedResultEnvelope;
+use Nexus\Mcp\Core\SafeDisplay;
 use Nexus\Mcp\Core\Schema\Error\InternalError;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcErrorResponse;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
@@ -174,7 +175,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         if (null === $response->id) {
             $this->logger->warning(
                 'Discarding error response with null id. No correlation to an outbound request is possible.',
-                ['error' => $response->error->message],
+                ['error' => SafeDisplay::sanitiseCause($response->error->message)],
             );
 
             return;
@@ -185,7 +186,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         if (! $this->outboundRequests->reject($response->id, $exception)) {
             $this->logger->warning(
                 'Discarding orphan error response for unknown request id.',
-                ['id' => $response->id->id, 'error' => $response->error->message],
+                ['id' => SafeDisplay::sanitiseId($response->id->id), 'error' => SafeDisplay::sanitiseCause($response->error->message)],
             );
         }
     }
@@ -214,7 +215,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         $this->logger->warning(
             'Discarding orphan success response for unknown request id.',
-            ['id' => $peeked->id->id],
+            ['id' => SafeDisplay::sanitiseId($peeked->id->id)],
         );
     }
 
