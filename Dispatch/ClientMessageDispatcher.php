@@ -114,7 +114,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         } catch (MethodMisroutedException $e) {
             $this->logger->warning(
                 'Rejecting envelope whose method was sent under the wrong JSON-RPC shape.',
-                ['envelope' => $envelope, 'exception' => $e],
+                ['exception' => $e],
             );
 
             // §4.1 splits notification from request on the envelope's id, not on the method it names, so an id-less one goes unanswered.
@@ -129,7 +129,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             if ($isNotification) {
                 $this->logger->info(
                     'Dropping malformed notification (JSON-RPC 2.0 §4.1 forbids responses to notifications).',
-                    ['envelope' => $envelope, 'exception' => $e],
+                    ['exception' => $e],
                 );
 
                 return;
@@ -157,7 +157,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         } catch (\Throwable $e) {
             $this->logger->warning(
                 'Discarding malformed response envelope from peer.',
-                ['envelope' => $envelope, 'exception' => $e],
+                ['exception' => $e],
             );
 
             return;
