@@ -49,12 +49,19 @@ use Psr\Log\NullLogger;
  */
 final class ClientBuilder
 {
+    public const int DEFAULT_MAX_IN_FLIGHT = 1_024;
+
     private ?Implementation $clientInfo = null;
     private ClientCapabilities $clientCapabilities;
     private LoggerInterface $logger;
     private ?float $requestTimeout = Client::DEFAULT_REQUEST_TIMEOUT;
     private ?float $maxRequestTimeout = Client::DEFAULT_MAX_REQUEST_TIMEOUT;
     private bool $retryLostRequests = false;
+
+    /**
+     * @var null|int<1, max>
+     */
+    private ?int $maxInFlight = self::DEFAULT_MAX_IN_FLIGHT;
 
     /**
      * @var array<non-empty-string, RequestHandlerInterface<non-empty-string, Result, ClientContext>>
@@ -196,6 +203,19 @@ final class ClientBuilder
     }
 
     /**
+     * Caps how many inbound messages the client processes at once, defaulting to `DEFAULT_MAX_IN_FLIGHT`, with
+     * null lifting the cap.
+     */
+    public function setMaxInFlightDispatches(?int $max): self
+    {
+        Assert::that($max)->nullOr()->isPositiveInt('Maximum in-flight dispatches must be a positive integer or null, {value} given.');
+
+        $this->maxInFlight = $max;
+
+        return $this;
+    }
+
+    /**
      * @param \Closure(): (int|non-empty-string) $factory
      */
     public function setRequestIdFactory(\Closure $factory): self
@@ -328,6 +348,7 @@ final class ClientBuilder
                 ),
                 inboundRequests: $inboundRequests,
                 subscriptions: $subscriptions,
+                maxInFlight: $this->maxInFlight,
             ),
             $outboundRequests,
             $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),

@@ -15,6 +15,7 @@ namespace Nexus\Mcp\Client\Subscription;
 
 use Amp\Future;
 use Nexus\Mcp\Client\Exception\SubscriptionClosedException;
+use Nexus\Mcp\Client\Exception\SubscriptionDeliveryDroppedException;
 use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
@@ -57,6 +58,7 @@ final class SubscriptionStream
      *
      * @throws RemoteCallFailedException
      * @throws SubscriptionClosedException
+     * @throws SubscriptionDeliveryDroppedException
      */
     public function await(): SubscriptionsListenResult
     {

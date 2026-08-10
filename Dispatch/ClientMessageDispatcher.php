@@ -15,7 +15,9 @@ namespace Nexus\Mcp\Client\Dispatch;
 
 use Amp\Cancellation;
 use Nexus\Mcp\Client\ClientContext;
+use Nexus\Mcp\Client\Exception\SubscriptionDeliveryDroppedException;
 use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
+use Nexus\Mcp\Core\Dispatch\LogThrottle;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
@@ -35,12 +37,16 @@ use Nexus\Mcp\Core\JsonRpc\JsonRpcMessageParser;
 use Nexus\Mcp\Core\JsonRpc\ResultResponseFactory;
 use Nexus\Mcp\Core\JsonRpc\UnparsedResultEnvelope;
 use Nexus\Mcp\Core\SafeDisplay;
+use Nexus\Mcp\Core\Schema\Enum\SdkErrorCode;
 use Nexus\Mcp\Core\Schema\Error\InternalError;
+use Nexus\Mcp\Core\Schema\Error\UnknownProtocolError;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcErrorResponse;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcNotification;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResultResponse;
+use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
+use Nexus\Mcp\Core\Schema\NotificationParams\CancelledNotificationParams;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
@@ -57,12 +63,16 @@ use function Amp\async;
  */
 final readonly class ClientMessageDispatcher implements MessageDispatcherInterface
 {
+    private const string OVERLOADED_MESSAGE = 'Client overloaded';
+
     private PendingCoroutines $coroutines;
     private ResponseSender $responseSender;
+    private LogThrottle $shedInbound;
 
     /**
      * @param HandlerRegistry<RequestHandlerInterface<non-empty-string, Result, ClientContext>> $requestHandlers
      * @param HandlerRegistry<NotificationHandlerInterface<non-empty-string>>                   $notificationHandlers
+     * @param null|int<1, max>                                                                  $maxInFlight          Inbound messages processed at once before further ones are shed, or null for no cap
      */
     public function __construct(
         private HandlerRegistry $requestHandlers,
@@ -72,9 +82,11 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         private JsonRpcMessageParser $parser = new JsonRpcMessageParser(),
         private PendingInboundRequests $inboundRequests = new PendingInboundRequests(),
         private SubscriptionRegistry $subscriptions = new SubscriptionRegistry(),
+        private ?int $maxInFlight = null,
     ) {
         $this->coroutines = new PendingCoroutines($this->logger);
         $this->responseSender = new ResponseSender($this->logger);
+        $this->shedInbound = new LogThrottle();
     }
 
     #[\Override]
@@ -100,6 +112,44 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         } else {
             $this->dispatchInboundEnvelope($envelope, $transport);
         }
+    }
+
+    private function isSaturated(): bool
+    {
+        return null !== $this->maxInFlight && $this->maxInFlight <= $this->coroutines->count();
+    }
+
+    /**
+     * The cap exemption performs the cancel, so each request in flight admits at most one cancellation past the cap.
+     *
+     * @param JsonRpcNotification<non-empty-string> $notification
+     * @param non-empty-string                      $method
+     */
+    private function relievesSaturation(JsonRpcNotification $notification, string $method): bool
+    {
+        if (CancelledNotification::getMethod() !== $method) {
+            return false;
+        }
+
+        $params = $notification->params;
+        \assert($params instanceof CancelledNotificationParams);
+
+        return $this->inboundRequests->cancel($params->requestId);
+    }
+
+    /**
+     * @param non-empty-string $method
+     */
+    private function reportShed(string $method): void
+    {
+        if (! $this->shedInbound->admits()) {
+            return;
+        }
+
+        $this->logger->warning(
+            'Shed {count} inbound message(s) so far. The client is at its in-flight dispatch cap.',
+            ['count' => $this->shedInbound->count(), 'method' => $method],
+        );
     }
 
     /**
@@ -226,6 +276,19 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     {
         $method = $request::getMethod();
 
+        if ($this->isSaturated()) {
+            $this->reportShed($method);
+            $this->responseSender->send($transport, new JsonRpcErrorResponse(
+                id: $request->id,
+                error: new UnknownProtocolError(
+                    code: SdkErrorCode::Overloaded->value,
+                    message: self::OVERLOADED_MESSAGE,
+                ),
+            ), $method);
+
+            return;
+        }
+
         $cancellation = $this->inboundRequests->claim($request->id);
 
         if (null === $cancellation) {
@@ -318,6 +381,18 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
             : $this->subscriptions->get($subscriptionId);
 
         if (null !== $subscription) {
+            if ($this->isSaturated()) {
+                // A lost delivery is undetectable from later ones, so the stream ends rather than staying silently stale.
+                $this->subscriptions->forget($subscription->subscriptionId);
+                $subscription->outcome->error(new SubscriptionDeliveryDroppedException($subscription->subscriptionId));
+                $this->logger->warning(
+                    'Ended subscription {subscriptionId} after shedding one of its deliveries at the in-flight dispatch cap.',
+                    ['subscriptionId' => $subscription->subscriptionId->id, 'method' => $method],
+                );
+
+                return;
+            }
+
             $listener = $subscription->onNotification;
             $this->coroutines->track(async(function () use ($listener, $notification, $method): void {
                 try {
@@ -336,6 +411,12 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         $handler = $this->notificationHandlers->get($method);
 
         if (null === $handler) {
+            return;
+        }
+
+        if ($this->isSaturated() && ! $this->relievesSaturation($notification, $method)) {
+            $this->reportShed($method);
+
             return;
         }
 
