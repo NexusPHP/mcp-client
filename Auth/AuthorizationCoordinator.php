@@ -14,10 +14,12 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
+use Amp\CancelledException;
 use Amp\Future;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Sync\LocalSemaphore;
 use Amp\Sync\Lock;
+use Amp\Sync\Semaphore;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
@@ -45,7 +47,6 @@ final class AuthorizationCoordinator
 
     private ?DiscoveredResource $discovered = null;
     private ScopeSet $granted;
-    private LocalSemaphore $lock;
 
     /**
      * @var FiberLocal<bool>
@@ -62,9 +63,9 @@ final class AuthorizationCoordinator
         private readonly TokenStoreInterface $tokens,
         private readonly AuthorizationOptions $options,
         private readonly LoggerInterface $logger = new NullLogger(),
+        private readonly Semaphore $lock = new LocalSemaphore(1),
     ) {
         $this->granted = new ScopeSet();
-        $this->lock = new LocalSemaphore(1);
         $this->reentrant = new FiberLocal(static fn(): bool => false);
     }
 
@@ -184,7 +185,14 @@ final class AuthorizationCoordinator
         /** @var Future<Lock> $pending */
         $pending = async(fn(): Lock => $this->lock->acquire());
 
-        return $pending->await($cancellation);
+        try {
+            return $pending->await($cancellation);
+        } catch (CancelledException $e) {
+            // The abandoned acquisition stays queued and is eventually handed a permit, which must not wait on collection to return.
+            $pending->map(static fn(Lock $lock) => $lock->release())->ignore();
+
+            throw $e;
+        }
     }
 
     private function runAuthorization(
