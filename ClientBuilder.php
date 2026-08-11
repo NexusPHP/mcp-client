@@ -40,6 +40,7 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 use Nexus\Mcp\Core\Schema\Result;
+use Nexus\Mcp\Core\Validation\IconSrcValidator;
 use Nexus\Mcp\Core\Validation\MethodClassValidator;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -137,6 +138,8 @@ final class ClientBuilder
         ?string $websiteUrl = null,
         ?array $icons = null,
     ): self {
+        IconSrcValidator::validate($icons, 'clientInfo');
+
         $this->clientInfo = new Implementation(
             name: $name,
             version: $version,
