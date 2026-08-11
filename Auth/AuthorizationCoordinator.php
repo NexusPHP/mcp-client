@@ -189,7 +189,7 @@ final class AuthorizationCoordinator
             return $pending->await($cancellation);
         } catch (CancelledException $e) {
             // The abandoned acquisition stays queued and is eventually handed a permit, which must not wait on collection to return.
-            $pending->map(static fn(Lock $lock) => $lock->release())->ignore();
+            $pending->map(static function (Lock $lock): void { $lock->release(); })->ignore();
 
             throw $e;
         }
