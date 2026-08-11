@@ -96,11 +96,11 @@ use Nexus\Mcp\Core\Schema\ResultResponse\SubscriptionsListenResultResponse;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
 use Nexus\Mcp\Core\Schema\SubscriptionFilter;
 use Nexus\Mcp\Core\Transport\AbortableTransportInterface;
+use Nexus\Mcp\Core\Transport\ListenerHandleInterface;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
-use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\TransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -142,7 +142,7 @@ final class Client
     private array $toolHeaderBindings = [];
 
     /**
-     * @var list<SubscriptionInterface>
+     * @var list<ListenerHandleInterface>
      */
     private array $listeners = [];
 

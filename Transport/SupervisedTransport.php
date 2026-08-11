@@ -19,10 +19,10 @@ use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
 use Nexus\Mcp\Core\Exception\TransportNotStartedException;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
+use Nexus\Mcp\Core\Transport\ListenerHandle;
+use Nexus\Mcp\Core\Transport\ListenerHandleInterface;
 use Nexus\Mcp\Core\Transport\ReconnectingTransportInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
-use Nexus\Mcp\Core\Transport\Subscription;
-use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\SupervisableTransportInterface;
 use Nexus\Mcp\Core\Transport\TransportEvents;
 use Nexus\Mcp\Core\Transport\TransportState;
@@ -62,7 +62,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     private float $windowStartedAt = 0.0;
 
     /**
-     * @var list<SubscriptionInterface>
+     * @var list<ListenerHandleInterface>
      */
     private array $subscriptions = [];
 
@@ -157,25 +157,25 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     }
 
     #[\Override]
-    public function onMessage(\Closure $listener): SubscriptionInterface
+    public function onMessage(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onMessage($listener);
     }
 
     #[\Override]
-    public function onError(\Closure $listener): SubscriptionInterface
+    public function onError(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onError($listener);
     }
 
     #[\Override]
-    public function onDrain(\Closure $listener): SubscriptionInterface
+    public function onDrain(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onDrain($listener);
     }
 
     #[\Override]
-    public function onClose(\Closure $listener): SubscriptionInterface
+    public function onClose(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onClose($listener);
     }
@@ -187,12 +187,12 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     }
 
     #[\Override]
-    public function onReconnect(\Closure $listener): SubscriptionInterface
+    public function onReconnect(\Closure $listener): ListenerHandleInterface
     {
         $id = spl_object_id($listener);
         $this->reconnectListeners[$id] = $listener;
 
-        return new Subscription(function () use ($id): void {
+        return new ListenerHandle(function () use ($id): void {
             unset($this->reconnectListeners[$id]);
         });
     }

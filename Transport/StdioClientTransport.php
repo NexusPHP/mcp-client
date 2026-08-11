@@ -21,9 +21,9 @@ use Nexus\Mcp\Core\SafeDisplay;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
 use Nexus\Mcp\Core\Transport\LineDuplex;
 use Nexus\Mcp\Core\Transport\LineReader;
+use Nexus\Mcp\Core\Transport\ListenerHandle;
+use Nexus\Mcp\Core\Transport\ListenerHandleInterface;
 use Nexus\Mcp\Core\Transport\SendContext;
-use Nexus\Mcp\Core\Transport\Subscription;
-use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\SupervisableTransportInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -164,12 +164,12 @@ final class StdioClientTransport implements SupervisableTransportInterface
     }
 
     #[\Override]
-    public function onUnexpectedExit(\Closure $listener): SubscriptionInterface
+    public function onUnexpectedExit(\Closure $listener): ListenerHandleInterface
     {
         $id = spl_object_id($listener);
         $this->exitListeners[$id] = $listener;
 
-        return new Subscription(function () use ($id): void {
+        return new ListenerHandle(function () use ($id): void {
             unset($this->exitListeners[$id]);
         });
     }
@@ -188,25 +188,25 @@ final class StdioClientTransport implements SupervisableTransportInterface
     }
 
     #[\Override]
-    public function onMessage(\Closure $listener): SubscriptionInterface
+    public function onMessage(\Closure $listener): ListenerHandleInterface
     {
         return $this->duplex->onMessage($listener);
     }
 
     #[\Override]
-    public function onError(\Closure $listener): SubscriptionInterface
+    public function onError(\Closure $listener): ListenerHandleInterface
     {
         return $this->duplex->onError($listener);
     }
 
     #[\Override]
-    public function onDrain(\Closure $listener): SubscriptionInterface
+    public function onDrain(\Closure $listener): ListenerHandleInterface
     {
         return $this->duplex->onDrain($listener);
     }
 
     #[\Override]
-    public function onClose(\Closure $listener): SubscriptionInterface
+    public function onClose(\Closure $listener): ListenerHandleInterface
     {
         return $this->duplex->onClose($listener);
     }

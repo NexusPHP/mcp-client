@@ -38,10 +38,10 @@ use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcRequest;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcResponse;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Transport\AbortableTransportInterface;
+use Nexus\Mcp\Core\Transport\ListenerHandleInterface;
 use Nexus\Mcp\Core\Transport\ParameterHeaderMirroringInterface;
 use Nexus\Mcp\Core\Transport\ReceiveContext;
 use Nexus\Mcp\Core\Transport\SendContext;
-use Nexus\Mcp\Core\Transport\SubscriptionInterface;
 use Nexus\Mcp\Core\Transport\TransportEvents;
 use Nexus\Mcp\Core\Transport\TransportState;
 use Psr\Log\LoggerInterface;
@@ -187,25 +187,25 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     }
 
     #[\Override]
-    public function onMessage(\Closure $listener): SubscriptionInterface
+    public function onMessage(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onMessage($listener);
     }
 
     #[\Override]
-    public function onError(\Closure $listener): SubscriptionInterface
+    public function onError(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onError($listener);
     }
 
     #[\Override]
-    public function onDrain(\Closure $listener): SubscriptionInterface
+    public function onDrain(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onDrain($listener);
     }
 
     #[\Override]
-    public function onClose(\Closure $listener): SubscriptionInterface
+    public function onClose(\Closure $listener): ListenerHandleInterface
     {
         return $this->events->onClose($listener);
     }
