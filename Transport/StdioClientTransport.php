@@ -69,7 +69,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
     private array $exitListeners = [];
 
     /**
-     * @param list<string>               $command Subprocess argv (no shell interpretation).
+     * @param non-empty-list<string>     $command Subprocess argv (no shell interpretation).
      * @param null|array<string, string> $env     Subprocess environment (`null` prunes to a safe allowlist).
      */
     public function __construct(
@@ -148,9 +148,10 @@ final class StdioClientTransport implements SupervisableTransportInterface
         }
 
         $this->process = $process;
+        // Arguments commonly carry credentials, so only the binary and their count are logged.
         $this->logger->info(
-            '{label} transport spawned subprocess. Command: {command} (PID {pid}).',
-            ['label' => self::LABEL, 'command' => implode(' ', $this->command), 'pid' => $process->getPid()],
+            '{label} transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
+            ['label' => self::LABEL, 'command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
         );
 
         $this->duplex->forwardLines(
