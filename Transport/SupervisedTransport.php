@@ -131,6 +131,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     #[\Override]
     public function close(): void
     {
+        $coldClose = TransportState::Idle === $this->state;
         $this->state = TransportState::Closed;
 
         $abandonsAReplacement = $this->respawning && $this->connectionEnded;
@@ -142,17 +143,22 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         }
 
         try {
-            $this->endConnection();
+            // The inner's own close relays drain first, then close, through the live subscriptions.
+            $this->retireConnection();
+        } finally {
+            if ($coldClose) {
+                $this->events->emitDrain();
+            }
 
-            if ($abandonsAReplacement) {
+            if ($abandonsAReplacement || $coldClose) {
                 try {
                     $this->events->emitClose();
                 } catch (\Throwable $e) {
                     $this->events->emitError($e);
                 }
+            } else {
+                $this->endConnection();
             }
-        } finally {
-            $this->retireConnection();
         }
     }
 

@@ -132,6 +132,8 @@ final class StdioClientTransport implements SupervisableTransportInterface
     #[\Override]
     public function start(): void
     {
+        $this->duplex->assertIsStartable();
+
         $process = $this->launcher->launch(
             $this->command,
             $this->workingDirectory,
