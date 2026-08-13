@@ -204,7 +204,12 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     {
         try {
             $peeked = $this->parser->parse($envelope);
-        } catch (\Throwable $e) {
+        } catch (AbstractJsonRpcProtocolException $e) {
+            // The peer has answered that id, so no well-formed response is coming for it.
+            if (null !== $e->requestId && $this->outboundRequests->reject($e->requestId, $e)) {
+                return;
+            }
+
             $this->logger->warning(
                 'Discarding malformed response envelope from peer.',
                 ['exception' => $e],
