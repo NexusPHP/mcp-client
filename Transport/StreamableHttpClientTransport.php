@@ -64,6 +64,13 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     private readonly TransportEvents $events;
     private readonly PendingCoroutines $exchanges;
     private TransportState $state = TransportState::Idle;
+
+    /**
+     * True from the first `close()` on, which `state` cannot signal as it stays `Running` across the
+     * drain so a listener may still send.
+     */
+    private bool $closing = false;
+
     private ?DeferredCancellation $lifetime = null;
 
     /**
@@ -171,9 +178,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     #[\Override]
     public function close(): void
     {
-        if (TransportState::Closed === $this->state) {
+        if ($this->closing) {
             return;
         }
+
+        $this->closing = true;
 
         try {
             $this->events->emitDrain();
