@@ -253,25 +253,25 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     {
         $responseClass = $this->outboundRequests->resolveResponseClass($peeked->id);
 
-        if (null !== $responseClass) {
-            try {
-                $response = $this->parser->parse($envelope, $responseClass);
-                \assert($response instanceof JsonRpcResultResponse);
-            } catch (\Throwable $e) {
-                $this->outboundRequests->reject($peeked->id, $e);
-
-                return;
-            }
-
-            $this->outboundRequests->resolve($peeked->id, $response);
+        if (null === $responseClass) {
+            $this->logger->warning(
+                'Discarding orphan success response for unknown request id.',
+                ['id' => SafeDisplay::sanitiseId($peeked->id->id)],
+            );
 
             return;
         }
 
-        $this->logger->warning(
-            'Discarding orphan success response for unknown request id.',
-            ['id' => SafeDisplay::sanitiseId($peeked->id->id)],
-        );
+        try {
+            $response = $this->parser->parse($envelope, $responseClass);
+            \assert($response instanceof JsonRpcResultResponse);
+        } catch (\Throwable $e) {
+            $this->outboundRequests->reject($peeked->id, $e);
+
+            return;
+        }
+
+        $this->outboundRequests->resolve($peeked->id, $response);
     }
 
     /**
