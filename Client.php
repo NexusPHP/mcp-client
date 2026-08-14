@@ -315,7 +315,8 @@ final class Client
     }
 
     /**
-     * Opens a `subscriptions/listen` stream, returning as soon as the request is away.
+     * Opens a `subscriptions/listen` stream, returning as soon as the request is away. The send skips
+     * `dispatch()`'s protocol-version renegotiation, which cannot trigger while one revision is supported.
      *
      * @param \Closure(JsonRpcNotification<non-empty-string>): void $onNotification
      *
@@ -549,7 +550,11 @@ final class Client
             }
         }
 
-        $this->refreshToolHeaderBindings($name);
+        try {
+            $this->refreshToolHeaderBindings($name);
+        } catch (\Throwable $refreshFailure) {
+            throw new RemoteCallFailedException($e->error, $refreshFailure);
+        }
 
         return $this->attemptToolCall($name, $arguments, $onProgress, $inputResponses, $requestState);
     }

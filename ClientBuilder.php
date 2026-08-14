@@ -17,6 +17,7 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Client\Dispatch\DiscoveredServerCapabilities;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Handler\Notification\ExtensionGateNotificationHandler;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
 use Nexus\Mcp\Client\Handler\Request\ExtensionGateRequestHandler;
 use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
@@ -327,9 +328,17 @@ final class ClientBuilder
 
         $requestHandlers = [...$extensionRequestHandlers, ...$this->requestHandlers];
 
+        $extensionNotificationHandlers = [];
+
+        foreach ($this->extensions->buildNotificationHandlers() as $extensionMethod => $extensionHandler) {
+            $owner = $this->extensions->findNotificationOwner($extensionMethod);
+            \assert(\is_string($owner));
+            $extensionNotificationHandlers[$extensionMethod] = new ExtensionGateNotificationHandler($owner, $extensionHandler, $discoveredCapabilities, $this->logger);
+        }
+
         $notificationHandlers = [
             CancelledNotification::getMethod() => new CancelledNotificationHandler($inboundRequests, $this->logger),
-            ...$this->extensions->buildNotificationHandlers(),
+            ...$extensionNotificationHandlers,
             ...$this->notificationHandlers,
         ];
         $notificationHandlers[ProgressNotification::getMethod()] = new RoutingProgressNotificationHandler(
