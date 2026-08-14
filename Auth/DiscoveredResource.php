@@ -21,7 +21,9 @@ use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
  */
 final readonly class DiscoveredResource
 {
-    public function __construct(public ProtectedResourceMetadata $metadata, public AuthorizationServerMetadata $server)
-    {
+    public function __construct(
+        public ProtectedResourceMetadata $metadata,
+        public AuthorizationServerMetadata $server,
+    ) {
     }
 }

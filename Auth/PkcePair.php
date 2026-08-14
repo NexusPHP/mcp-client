@@ -25,8 +25,10 @@ final readonly class PkcePair
     public const string CHALLENGE_METHOD = 'S256';
     private const int VERIFIER_ENTROPY_BYTES = 32;
 
-    private function __construct(public string $verifier, public string $challenge)
-    {
+    private function __construct(
+        public string $verifier,
+        public string $challenge,
+    ) {
     }
 
     public static function generate(): self

@@ -27,8 +27,10 @@ final class InsufficientScopeException extends \RuntimeException implements McpE
      * @param list<non-empty-string> $required Scopes the challenge named that this client can use
      * @param bool                   $named    Whether the challenge named a scope at all
      */
-    public function __construct(public readonly array $required, bool $named = false)
-    {
+    public function __construct(
+        public readonly array $required,
+        bool $named = false,
+    ) {
         parent::__construct(match (true) {
             [] !== $required => \sprintf('The MCP server requires the scope "%s".', SafeDisplay::sanitiseCause(implode(' ', $required))),
             $named => 'The MCP server named only scopes that are not RFC 6749 scope-tokens, so none can be requested.',

@@ -30,8 +30,10 @@ final readonly class RoutingProgressNotificationHandler implements NotificationH
     /**
      * @param null|NotificationHandlerInterface<non-empty-string> $fallback
      */
-    public function __construct(private ProgressListenerRegistry $listeners, private ?NotificationHandlerInterface $fallback = null)
-    {
+    public function __construct(
+        private ProgressListenerRegistry $listeners,
+        private ?NotificationHandlerInterface $fallback = null,
+    ) {
     }
 
     #[\Override]

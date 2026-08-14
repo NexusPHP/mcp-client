@@ -30,8 +30,10 @@ final class RequestDeadline
     private string $idleCallbackId;
     private readonly ?string $ceilingCallbackId;
 
-    public function __construct(private readonly float $timeout, ?float $maxTimeout = null)
-    {
+    public function __construct(
+        private readonly float $timeout,
+        ?float $maxTimeout = null,
+    ) {
         $this->expiry = new DeferredCancellation();
         $this->idleCallbackId = $this->arm($timeout);
         $this->ceilingCallbackId = null === $maxTimeout ? null : $this->arm(max($maxTimeout, $timeout));

@@ -32,8 +32,10 @@ final readonly class JsonHttpExchange
 {
     public const int MAX_RESPONSE_BYTES = 65_536;
 
-    public function __construct(private DelegateHttpClient $client, private float $timeout = 10.0)
-    {
+    public function __construct(
+        private DelegateHttpClient $client,
+        private float $timeout = 10.0,
+    ) {
     }
 
     /**
