@@ -16,7 +16,6 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
-use Nexus\Mcp\Client\Exception\AuthorizationDiscoveryFailedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
@@ -26,6 +25,7 @@ use Nexus\Mcp\Core\Auth\ProtectedResourceMetadata;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
 use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
+use Nexus\Mcp\Core\Exception\RuntimeException;
 use Nexus\Mcp\Core\Http\HttpStatus;
 use Nexus\Mcp\Core\SafeDisplay;
 
@@ -91,7 +91,7 @@ final readonly class MetadataDiscovery
             return $metadata;
         }
 
-        throw new AuthorizationDiscoveryFailedException('protected resource metadata', $resource->value, $candidates);
+        self::refuseDiscovery('protected resource metadata', $resource->value, $candidates);
     }
 
     public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
@@ -121,7 +121,7 @@ final readonly class MetadataDiscovery
             return $metadata;
         }
 
-        throw new AuthorizationDiscoveryFailedException('authorization server metadata', $issuer, $candidates);
+        self::refuseDiscovery('authorization server metadata', $issuer, $candidates);
     }
 
     /**
@@ -190,5 +190,18 @@ final readonly class MetadataDiscovery
         if (null === $methods || ! \in_array(PkcePair::CHALLENGE_METHOD, $methods, true)) {
             throw new PkceNotSupportedException($metadata->issuer);
         }
+    }
+
+    /**
+     * @param list<string> $probed
+     */
+    private static function refuseDiscovery(string $document, string $subject, array $probed): never
+    {
+        throw new RuntimeException(\sprintf(
+            'No %s was served for "%s". Probed: %s.',
+            $document,
+            SafeDisplay::sanitiseCause($subject),
+            implode(', ', array_map(static fn(string $url): string => SafeDisplay::sanitiseCause($url), $probed)),
+        ));
     }
 }

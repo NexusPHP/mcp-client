@@ -14,8 +14,8 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Subscription;
 
 use Amp\Future;
-use Nexus\Mcp\Client\Exception\SubscriptionClosedException;
 use Nexus\Mcp\Client\Exception\SubscriptionDeliveryDroppedException;
+use Nexus\Mcp\Core\Exception\LogicException;
 use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Schema\RequestId;
 use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
@@ -56,14 +56,17 @@ final class SubscriptionStream
     /**
      * Blocks until the server tears the subscription down of its own accord.
      *
+     * @throws LogicException
      * @throws RemoteCallFailedException
-     * @throws SubscriptionClosedException
      * @throws SubscriptionDeliveryDroppedException
      */
     public function await(): SubscriptionsListenResult
     {
         if ($this->closed) {
-            throw new SubscriptionClosedException($this->subscriptionId);
+            throw new LogicException(\sprintf(
+                'Subscription %s was closed by this client, so it carries no response to await.',
+                var_export($this->subscriptionId->id, true),
+            ));
         }
 
         return $this->outcome->await();

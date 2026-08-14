@@ -20,13 +20,13 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
-use Nexus\Mcp\Client\Exception\TokenRequestFailedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
 use Nexus\Mcp\Core\Auth\WwwAuthenticateChallenge;
+use Nexus\Mcp\Core\Exception\RuntimeException;
 use Nexus\Mcp\Core\Http\HttpStatus;
 use Nexus\Mcp\Core\SafeDisplay;
 
@@ -137,7 +137,7 @@ final readonly class TokenEndpoint
                 throw $e;
             }
 
-            throw new TokenRequestFailedException(
+            throw self::buildTokenFailure(
                 'invalid_request',
                 \sprintf('The token endpoint answered %d with a body that is not a JSON object.', $status),
             );
@@ -150,7 +150,7 @@ final readonly class TokenEndpoint
             throw match (true) {
                 self::CLIENT_REJECTION === $error => new ClientRegistrationRejectedException($description),
                 \in_array($error, self::GRANT_REJECTIONS, true) => new AuthorizationGrantRejectedException($error, $description),
-                default => new TokenRequestFailedException($error, $description),
+                default => self::buildTokenFailure($error, $description),
             };
         }
 
@@ -166,7 +166,7 @@ final readonly class TokenEndpoint
         $type = MetadataReader::readRequiredString($data, 'token_type', self::LABEL);
 
         if (strcasecmp($type, WwwAuthenticateChallenge::BEARER_SCHEME) !== 0) {
-            throw new TokenRequestFailedException(
+            throw self::buildTokenFailure(
                 'unsupported_token_type',
                 \sprintf('MCP clients can only present bearer tokens, "%s" given.', SafeDisplay::sanitise($type)),
             );
@@ -202,5 +202,14 @@ final readonly class TokenEndpoint
             SafeDisplay::sanitise($registration->clientId),
             $registration->tokenEndpointAuthMethod->value,
         );
+    }
+
+    private static function buildTokenFailure(string $error, ?string $description): RuntimeException
+    {
+        return new RuntimeException(\sprintf(
+            'The token request failed with "%s"%s',
+            $error,
+            null === $description ? '.' : \sprintf(': %s', $description),
+        ));
     }
 }

@@ -15,9 +15,9 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
-use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
 use Nexus\Mcp\Core\Auth\ScopeSet;
+use Nexus\Mcp\Core\Exception\RuntimeException;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -44,7 +44,7 @@ final readonly class GrantContext
      * Resolves the `client_id` to present, preferring pre-registered credentials, then a Client ID Metadata
      * Document, then Dynamic Client Registration.
      *
-     * @throws AuthorizationServerMismatchException
+     * @throws RuntimeException
      */
     public function resolveRegistration(Cancellation $cancellation): ClientRegistration
     {

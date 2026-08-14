@@ -18,14 +18,13 @@ use Amp\DeferredFuture;
 use Nexus\Mcp\Client\Dispatch\DiscoveredServerCapabilities;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
 use Nexus\Mcp\Client\Dispatch\RequestDeadline;
-use Nexus\Mcp\Client\Exception\ClientAlreadyConnectedException;
-use Nexus\Mcp\Client\Exception\ClientNotConnectedException;
 use Nexus\Mcp\Client\Exception\ServerCapabilityNotSupportedException;
 use Nexus\Mcp\Client\Subscription\OpenSubscription;
 use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
 use Nexus\Mcp\Client\Subscription\SubscriptionStream;
 use Nexus\Mcp\Core\Dispatch\MessageDispatcherInterface;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
+use Nexus\Mcp\Core\Exception\LogicException;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
 use Nexus\Mcp\Core\Exception\RemoteCallFailedException;
 use Nexus\Mcp\Core\Exception\RequestTimeoutException;
@@ -173,12 +172,12 @@ final class Client
     /**
      * Non-blocking connect to the transport.
      *
-     * @throws ClientAlreadyConnectedException
+     * @throws LogicException
      */
     public function connect(TransportInterface $transport): void
     {
         if (null !== $this->transport) {
-            throw new ClientAlreadyConnectedException();
+            throw new LogicException('Client is already connected to a transport.');
         }
 
         $this->logger->info('Starting MCP client.');
@@ -297,7 +296,7 @@ final class Client
     /**
      * Sends `server/discover` and records the advertised server info and capabilities.
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -320,12 +319,12 @@ final class Client
      *
      * @param \Closure(JsonRpcNotification<non-empty-string>): void $onNotification
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws TransportAlreadyClosedException
      */
     public function listen(SubscriptionFilter $notifications, \Closure $onNotification): SubscriptionStream
     {
-        $transport = $this->transport ?? throw new ClientNotConnectedException();
+        $transport = $this->requireConnectedTransport();
 
         $id = $this->mintRequestId();
 
@@ -363,7 +362,7 @@ final class Client
     }
 
     /**
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -384,7 +383,7 @@ final class Client
     }
 
     /**
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -401,7 +400,7 @@ final class Client
     }
 
     /**
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -418,7 +417,7 @@ final class Client
     }
 
     /**
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -438,7 +437,7 @@ final class Client
      * @param non-empty-string                                $uri
      * @param null|array<int|non-empty-string, InputResponse> $inputResponses
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -467,7 +466,7 @@ final class Client
      * @param null|array<array-key, string>                   $arguments
      * @param null|array<int|non-empty-string, InputResponse> $inputResponses
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -497,7 +496,7 @@ final class Client
      * @param array{name: string, value: string}               $argument
      * @param null|array{arguments?: array<array-key, string>} $context
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -530,7 +529,7 @@ final class Client
      * @param null|\Closure(float $progress, ?float $total, ?string $message): void $onProgress
      * @param null|array<int|non-empty-string, InputResponse>                       $inputResponses
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -563,7 +562,7 @@ final class Client
      *
      * @return TResponse
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      * @throws TransportAlreadyClosedException
@@ -789,7 +788,7 @@ final class Client
      *
      * @return TResponse
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
      */
@@ -830,7 +829,7 @@ final class Client
      *
      * @return TResponse
      *
-     * @throws ClientNotConnectedException
+     * @throws LogicException
      * @throws RemoteCallFailedException
      * @throws RequestTimeoutException
      * @throws ServerCapabilityNotSupportedException
@@ -841,7 +840,7 @@ final class Client
         ?SendContext $context,
         ?RequestDeadline $deadline,
     ): JsonRpcResultResponse {
-        $transport = $this->transport ?? throw new ClientNotConnectedException();
+        $transport = $this->requireConnectedTransport();
 
         $this->assertServerSupports($request::getMethod());
 
@@ -1047,5 +1046,10 @@ final class Client
     private function mintProgressToken(): ProgressToken
     {
         return new ProgressToken(token: ($this->progressTokenFactory)());
+    }
+
+    private function requireConnectedTransport(): TransportInterface
+    {
+        return $this->transport ?? throw new LogicException('Client is not connected. Call connect() first.');
     }
 }

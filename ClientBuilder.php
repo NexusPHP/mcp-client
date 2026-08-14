@@ -22,9 +22,7 @@ use Nexus\Mcp\Client\Handler\Request\ExtensionGateRequestHandler;
 use Nexus\Mcp\Client\Subscription\SubscriptionRegistry;
 use Nexus\Mcp\Core\Dispatch\PendingInboundRequests;
 use Nexus\Mcp\Core\Dispatch\PendingOutboundRequests;
-use Nexus\Mcp\Core\Exception\DuplicateExtensionException;
-use Nexus\Mcp\Core\Exception\ExtensionMethodCollisionException;
-use Nexus\Mcp\Core\Exception\MissingNotificationClassException;
+use Nexus\Mcp\Core\Exception\LogicException;
 use Nexus\Mcp\Core\Extension\ExtensionCollection;
 use Nexus\Mcp\Core\Handler\HandlerRegistry;
 use Nexus\Mcp\Core\Handler\Notification\CancelledNotificationHandler;
@@ -107,8 +105,7 @@ final class ClientBuilder
     }
 
     /**
-     * @throws DuplicateExtensionException
-     * @throws ExtensionMethodCollisionException
+     * @throws LogicException
      */
     public function enableExtension(ClientExtensionInterface $extension): self
     {
@@ -272,7 +269,7 @@ final class ClientBuilder
      * @param NotificationHandlerInterface<non-empty-string>           $handler
      * @param null|class-string<JsonRpcNotification<non-empty-string>> $notificationClass
      *
-     * @throws MissingNotificationClassException
+     * @throws LogicException
      */
     public function addNotificationHandler(
         string $method,
@@ -284,7 +281,10 @@ final class ClientBuilder
         $registryClass = JsonRpcMethodRegistry::notifications()[$method] ?? null;
 
         if (null === $registryClass && null === $notificationClass) {
-            throw new MissingNotificationClassException($method);
+            throw new LogicException(\sprintf(
+                'Notification method "%s" is not defined by the MCP specification, so its handler registration must name the $notificationClass that parses it.',
+                $method,
+            ));
         }
 
         if (null !== $registryClass && null !== $notificationClass) {
@@ -368,7 +368,7 @@ final class ClientBuilder
     }
 
     /**
-     * @throws DuplicateExtensionException
+     * @throws LogicException
      */
     private function buildClientCapabilities(): ClientCapabilities
     {
@@ -383,7 +383,7 @@ final class ClientBuilder
 
         foreach (array_keys($slot) as $identifier) {
             if (\array_key_exists($identifier, $declared)) {
-                throw new DuplicateExtensionException($identifier);
+                ExtensionCollection::refuseDuplicateDeclaration($identifier);
             }
         }
 

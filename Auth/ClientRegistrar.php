@@ -18,11 +18,11 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
-use Nexus\Mcp\Client\Exception\ClientRegistrationFailedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 use Nexus\Mcp\Core\Auth\MetadataReader;
 use Nexus\Mcp\Core\Auth\TokenEndpointAuthMethod;
+use Nexus\Mcp\Core\Exception\RuntimeException;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
@@ -124,7 +124,7 @@ final readonly class ClientRegistrar
         $data = JsonHttpExchange::decode($payload, 'registration endpoint');
 
         if ($status >= 400) {
-            throw new ClientRegistrationFailedException(
+            throw self::buildRegistrationFailure(
                 MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
                 MetadataReader::readErrorField($data, 'error_description', self::LABEL),
             );
@@ -163,12 +163,21 @@ final readonly class ClientRegistrar
         $method = TokenEndpointAuthMethod::tryFrom($declared);
 
         if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
-            throw new ClientRegistrationFailedException(
+            throw self::buildRegistrationFailure(
                 'invalid_client_metadata',
                 \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', SafeDisplay::sanitise($declared)),
             );
         }
 
         return $method;
+    }
+
+    private static function buildRegistrationFailure(string $error, ?string $description): RuntimeException
+    {
+        return new RuntimeException(\sprintf(
+            'Dynamic Client Registration failed with "%s"%s',
+            $error,
+            null === $description ? '.' : \sprintf(': %s', $description),
+        ));
     }
 }

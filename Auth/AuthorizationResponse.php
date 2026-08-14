@@ -13,9 +13,9 @@ declare(strict_types=1);
 
 namespace Nexus\Mcp\Client\Auth;
 
-use Nexus\Mcp\Client\Exception\AuthorizationDeniedException;
 use Nexus\Mcp\Client\Exception\InvalidAuthorizationResponseException;
 use Nexus\Mcp\Core\Auth\MetadataReader;
+use Nexus\Mcp\Core\Exception\RuntimeException;
 
 /**
  * Validated read of the authorization code an authorization response carries.
@@ -41,7 +41,13 @@ final class AuthorizationResponse
         $error = MetadataReader::readErrorField($parameters, 'error', self::LABEL);
 
         if (null !== $error) {
-            throw new AuthorizationDeniedException($error, MetadataReader::readErrorField($parameters, 'error_description', self::LABEL));
+            $description = MetadataReader::readErrorField($parameters, 'error_description', self::LABEL);
+
+            throw new RuntimeException(\sprintf(
+                'The authorization server denied the request with "%s"%s',
+                $error,
+                null === $description ? '.' : \sprintf(': %s', $description),
+            ));
         }
 
         $code = $parameters['code'] ?? null;

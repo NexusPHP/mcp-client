@@ -22,7 +22,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
  */
 final class AuthorizationGrantRejectedException extends \RuntimeException implements McpExceptionInterface
 {
-    public function __construct(public readonly string $error, ?string $description = null)
+    public function __construct(string $error, ?string $description = null)
     {
         parent::__construct(\sprintf(
             'The token request failed with "%s"%s',
