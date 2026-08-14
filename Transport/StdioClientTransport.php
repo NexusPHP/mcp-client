@@ -222,11 +222,14 @@ final class StdioClientTransport implements SupervisableTransportInterface
         async(function () use ($process, $cancellation): void {
             try {
                 $exitCode = $process->join($cancellation);
-            } catch (CancelledException|ProcessException $e) {
-                if ($e instanceof CancelledException) {
-                    return;
-                }
+            } catch (CancelledException) {
+                $this->logger->debug(
+                    '{label} transport stopped watching for the subprocess exit.',
+                    ['label' => self::LABEL],
+                );
 
+                return;
+            } catch (ProcessException) {
                 $exitCode = null;
             }
 
