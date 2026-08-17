@@ -125,12 +125,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     #[\Override]
     public function send(JsonRpcMessage $message, ?SendContext $context = null): void
     {
-        $lifetime = match ($this->state) {
+        match ($this->state) {
             TransportState::Idle => throw new TransportNotStartedException(operation: 'send'),
             TransportState::Closed => throw new TransportAlreadyClosedException(operation: 'send'),
-            TransportState::Running => $this->lifetime,
+            TransportState::Running => null,
         };
-        \assert($lifetime instanceof DeferredCancellation);
 
         if ($message instanceof JsonRpcResponse) {
             $this->logger->warning('{label} transport dropped an outbound response, which a client must not send.', ['label' => self::LABEL]);
@@ -139,9 +138,10 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         }
 
         $headers = $context->headers ?? [];
-
         $requestId = $message instanceof JsonRpcRequest ? $message->id : null;
-        $cancellation = $lifetime->getCancellation();
+
+        \assert($this->lifetime instanceof DeferredCancellation);
+        $cancellation = $this->lifetime->getCancellation();
         $held = null;
 
         if (null !== $requestId) {
