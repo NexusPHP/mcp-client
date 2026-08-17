@@ -51,6 +51,7 @@ final class ClientBuilder
 {
     public const int DEFAULT_MAX_IN_FLIGHT = 1_024;
 
+    private bool $built = false;
     private ?Implementation $clientInfo = null;
     private ClientCapabilities $clientCapabilities;
     private LoggerInterface $logger;
@@ -110,6 +111,7 @@ final class ClientBuilder
      */
     public function enableExtension(ClientExtensionInterface $extension): self
     {
+        $this->assertNotBuilt();
         $this->extensions->add(
             $extension,
             claimedRequests: array_keys($this->requestHandlers),
@@ -136,6 +138,7 @@ final class ClientBuilder
         ?string $websiteUrl = null,
         ?array $icons = null,
     ): self {
+        $this->assertNotBuilt();
         IconSrcValidator::validate($icons, 'clientInfo');
 
         $this->clientInfo = new Implementation(
@@ -152,6 +155,7 @@ final class ClientBuilder
 
     public function setClientCapabilities(ClientCapabilities $capabilities): self
     {
+        $this->assertNotBuilt();
         $this->clientCapabilities = $capabilities;
 
         return $this;
@@ -159,6 +163,7 @@ final class ClientBuilder
 
     public function setLogger(LoggerInterface $logger): self
     {
+        $this->assertNotBuilt();
         $this->logger = $logger;
 
         return $this;
@@ -169,6 +174,8 @@ final class ClientBuilder
      */
     public function setRequestTimeout(?float $seconds): self
     {
+        $this->assertNotBuilt();
+
         if (null !== $seconds && $seconds <= 0.0) {
             throw new \InvalidArgumentException(\sprintf('The request timeout must be positive or null, %s given.', $seconds));
         }
@@ -183,6 +190,8 @@ final class ClientBuilder
      */
     public function setMaxRequestTimeout(?float $seconds): self
     {
+        $this->assertNotBuilt();
+
         if (null !== $seconds && $seconds <= 0.0) {
             throw new \InvalidArgumentException(\sprintf('The maximum request timeout must be positive or null, %s given.', $seconds));
         }
@@ -198,6 +207,7 @@ final class ClientBuilder
      */
     public function setRetryLostRequests(bool $retry): self
     {
+        $this->assertNotBuilt();
         $this->retryLostRequests = $retry;
 
         return $this;
@@ -209,6 +219,8 @@ final class ClientBuilder
      */
     public function setMaxInFlightDispatches(?int $max): self
     {
+        $this->assertNotBuilt();
+
         Assert::that($max)->nullOr()->isPositiveInt('Maximum in-flight dispatches must be a positive integer or null, {value} given.');
 
         $this->maxInFlight = $max;
@@ -221,6 +233,7 @@ final class ClientBuilder
      */
     public function setRequestIdFactory(\Closure $factory): self
     {
+        $this->assertNotBuilt();
         $this->requestIdFactory = $factory;
 
         return $this;
@@ -231,6 +244,7 @@ final class ClientBuilder
      */
     public function setProgressTokenFactory(\Closure $factory): self
     {
+        $this->assertNotBuilt();
         $this->progressTokenFactory = $factory;
 
         return $this;
@@ -243,6 +257,7 @@ final class ClientBuilder
      */
     public function addRequestHandler(string $method, RequestHandlerInterface $handler, string $requestClass): self
     {
+        $this->assertNotBuilt();
         $this->extensions->assertNotOwned($method);
 
         MethodClassValidator::validate($requestClass, $method);
@@ -277,6 +292,7 @@ final class ClientBuilder
         NotificationHandlerInterface $handler,
         ?string $notificationClass = null,
     ): self {
+        $this->assertNotBuilt();
         $this->extensions->assertNotOwned($method, isNotification: true);
 
         $registryClass = JsonRpcMethodRegistry::notifications()[$method] ?? null;
@@ -307,6 +323,9 @@ final class ClientBuilder
 
     public function build(): Client
     {
+        $this->assertNotBuilt();
+        $this->built = true;
+
         Assert::that($this->clientInfo)->isInstanceOf(
             Implementation::class,
             'Client information must be set before build() via setClientInfo().',
@@ -374,6 +393,16 @@ final class ClientBuilder
             extensionMethods: $this->extensions->getOutboundOwners(),
             serverCapabilities: $discoveredCapabilities,
         );
+    }
+
+    /**
+     * @throws LogicException
+     */
+    private function assertNotBuilt(): void
+    {
+        if ($this->built) {
+            throw new LogicException('This builder has already been built. Construct a new ClientBuilder for another client.');
+        }
     }
 
     /**
