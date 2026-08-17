@@ -139,6 +139,11 @@ final class StdioClientTransport implements SupervisableTransportInterface
             $this->workingDirectory,
             $this->env ?? self::buildDefaultEnvironment(),
         );
+        // Arguments commonly carry credentials, so only the binary and their count are logged.
+        $this->logger->info(
+            '{label} transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
+            ['label' => self::LABEL, 'command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
+        );
 
         try {
             $this->duplex->start($process->getStdout(), $process->getStdin());
@@ -150,11 +155,6 @@ final class StdioClientTransport implements SupervisableTransportInterface
         }
 
         $this->process = $process;
-        // Arguments commonly carry credentials, so only the binary and their count are logged.
-        $this->logger->info(
-            '{label} transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
-            ['label' => self::LABEL, 'command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
-        );
 
         $this->duplex->forwardLines(
             $process->getStderr(),

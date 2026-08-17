@@ -192,6 +192,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             $this->lifetime?->cancel();
             $this->exchanges->flushPending();
             $this->events->emitClose();
+            $this->logger->info('{label} transport closed.', ['label' => self::LABEL]);
         }
     }
 
