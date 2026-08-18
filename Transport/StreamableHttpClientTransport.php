@@ -18,6 +18,7 @@ use Amp\Cancellation;
 use Amp\CancelledException;
 use Amp\CompositeCancellation;
 use Amp\DeferredCancellation;
+use Amp\DeferredFuture;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\HttpClientBuilder;
 use Amp\Http\Client\Request;
@@ -70,6 +71,21 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
      * drain so a listener may still send.
      */
     private bool $closing = false;
+
+    /**
+     * @var null|\Fiber<mixed, mixed, mixed, mixed> The close owner, `null` while no close is in progress or when {main} owns it
+     */
+    private ?\Fiber $closingFiber = null;
+
+    /**
+     * @var null|DeferredFuture<null>
+     */
+    private ?DeferredFuture $closeCompletion = null;
+
+    /**
+     * @var array<int, \Fiber<mixed, mixed, mixed, mixed>> The in-flight exchange fibers, close participants while the flush drains them
+     */
+    private array $exchangeFibers = [];
 
     private ?DeferredCancellation $lifetime = null;
 
@@ -153,6 +169,10 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         }
 
         $this->exchanges->track(async(function () use ($message, $headers, $cancellation, $requestId, $held): void {
+            $fiber = \Fiber::getCurrent();
+            \assert($fiber instanceof \Fiber);
+            $this->exchangeFibers[spl_object_id($fiber)] = $fiber;
+
             try {
                 $this->exchange($message, $headers, $cancellation);
             } catch (CancelledException) {
@@ -172,6 +192,8 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                     unset($this->inFlight[$key]);
                 }
             }
+
+            unset($this->exchangeFibers[spl_object_id($fiber)]);
         }));
     }
 
@@ -179,20 +201,35 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     public function close(): void
     {
         if ($this->closing) {
+            if ($this->participatesInClose()) {
+                return;
+            }
+
+            $this->closeCompletion?->getFuture()->await();
+
             return;
         }
 
         $this->closing = true;
+        $this->closingFiber = \Fiber::getCurrent();
+
+        /** @var DeferredFuture<null> $completion */
+        $completion = new DeferredFuture();
+        $this->closeCompletion = $completion;
 
         try {
             $this->events->emitDrain();
         } finally {
             $this->state = TransportState::Closed;
 
-            $this->lifetime?->cancel();
-            $this->exchanges->flushPending();
-            $this->events->emitClose();
-            $this->logger->info('{label} transport closed.', ['label' => self::LABEL]);
+            try {
+                $this->lifetime?->cancel();
+                $this->exchanges->flushPending();
+                $this->events->emitClose();
+                $this->logger->info('{label} transport closed.', ['label' => self::LABEL]);
+            } finally {
+                $completion->complete();
+            }
         }
     }
 
@@ -224,6 +261,16 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     public function abort(RequestId $id): void
     {
         ($this->inFlight[self::buildKey($id)] ?? null)?->cancel();
+    }
+
+    /**
+     * Whether the current fiber is one the in-progress close is itself running or draining.
+     */
+    private function participatesInClose(): bool
+    {
+        $current = \Fiber::getCurrent();
+
+        return $current === $this->closingFiber || \in_array($current, $this->exchangeFibers, true);
     }
 
     /**
