@@ -98,7 +98,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
 
         $this->clock = $clock ?? static fn(): float => microtime(true);
-        $this->events = new TransportEvents();
+        $this->events = TransportEvents::create($this->logger, self::LABEL);
     }
 
     #[\Override]

@@ -104,7 +104,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         );
 
         $this->client = $client ?? HttpClientBuilder::buildDefault();
-        $this->events = new TransportEvents();
+        $this->events = TransportEvents::create($logger, self::LABEL);
         $this->exchanges = new PendingCoroutines();
     }
 
