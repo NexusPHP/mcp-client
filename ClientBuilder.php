@@ -17,6 +17,7 @@ use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Dispatch\ClientMessageDispatcher;
 use Nexus\Mcp\Client\Dispatch\DiscoveredServerCapabilities;
 use Nexus\Mcp\Client\Dispatch\ProgressListenerRegistry;
+use Nexus\Mcp\Client\Extension\ClientExtensionInterface;
 use Nexus\Mcp\Client\Handler\Notification\ExtensionGateNotificationHandler;
 use Nexus\Mcp\Client\Handler\Notification\RoutingProgressNotificationHandler;
 use Nexus\Mcp\Client\Handler\Request\ExtensionGateRequestHandler;

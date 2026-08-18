@@ -11,8 +11,9 @@ declare(strict_types=1);
  * the LICENSE file that was distributed with this source code.
  */
 
-namespace Nexus\Mcp\Client;
+namespace Nexus\Mcp\Client\Extension;
 
+use Nexus\Mcp\Client\ClientContext;
 use Nexus\Mcp\Core\Extension\ExtensionInterface;
 
 /**
