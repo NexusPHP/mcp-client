@@ -43,7 +43,7 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
             $redirectUri,
             $context->resource,
             $context->scopes,
-            $context->options->allowInsecureLoopback,
+            new SecureEndpoint($context->options->allowInsecureLoopback),
         );
 
         $code = AuthorizationResponse::readCode(

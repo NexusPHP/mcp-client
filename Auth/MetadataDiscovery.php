@@ -46,7 +46,7 @@ final readonly class MetadataDiscovery
     public function __construct(
         DelegateHttpClient $client,
         float $timeout = 10.0,
-        private bool $allowInsecureLoopback = false,
+        private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
     ) {
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
@@ -96,7 +96,7 @@ final readonly class MetadataDiscovery
 
     public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
     {
-        SecureEndpoint::verifyAuthorizationServerUrl($issuer, 'authorization server issuer', $this->allowInsecureLoopback);
+        $this->secureEndpoint->verifyAuthorizationServerUrl($issuer, 'authorization server issuer');
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {

@@ -47,12 +47,14 @@ final readonly class AuthorizationOptions
         public float $timeout = 10.0,
         public bool $allowInsecureLoopback = false,
     ) {
+        $secureEndpoint = new SecureEndpoint($allowInsecureLoopback);
+
         if (null !== $redirectUri) {
-            SecureEndpoint::verifyRedirectUri($redirectUri);
+            $secureEndpoint->verifyRedirectUri($redirectUri);
         }
 
         if (null !== $clientIdMetadataDocumentUrl) {
-            SecureEndpoint::verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
+            $secureEndpoint->verifyClientIdMetadataDocumentUrl($clientIdMetadataDocumentUrl);
         }
 
         if (TokenEndpointAuthMethod::PrivateKeyJwt === $preRegistered?->tokenEndpointAuthMethod) {

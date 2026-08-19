@@ -81,16 +81,17 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $this->client = $clientBuilder->build();
         $this->sealedClient = $clientBuilder->followRedirects(0)->build();
 
+        $secureEndpoint = new SecureEndpoint($this->options->allowInsecureLoopback);
         $this->coordinator = new AuthorizationCoordinator(
             $this->resource,
-            new MetadataDiscovery($this->client, $this->options->timeout, $this->options->allowInsecureLoopback),
+            new MetadataDiscovery($this->client, $this->options->timeout, $secureEndpoint),
             new ClientRegistrar(
                 $this->sealedClient,
                 $registrations ?? new InMemoryClientRegistrationStore(),
                 $this->options->timeout,
-                $this->options->allowInsecureLoopback,
+                $secureEndpoint,
             ),
-            new TokenEndpoint($this->sealedClient, $this->options->timeout, $this->options->allowInsecureLoopback),
+            new TokenEndpoint($this->sealedClient, $this->options->timeout, $secureEndpoint),
             $this->sealedClient,
             $strategy,
             $tokens ?? new InMemoryTokenStore(),

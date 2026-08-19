@@ -42,7 +42,7 @@ final readonly class ClientRegistrar
         DelegateHttpClient $client,
         private ClientRegistrationStoreInterface $store,
         float $timeout = 10.0,
-        private bool $allowInsecureLoopback = false,
+        private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
     ) {
         $this->exchange = new JsonHttpExchange($client, $timeout);
     }
@@ -108,7 +108,7 @@ final readonly class ClientRegistrar
         $redirectUri = $options->redirectUri;
         Assert::that($redirectUri)->isNonEmptyString('Dynamic Client Registration needs a redirect URI, and the authorization options carry none.');
 
-        SecureEndpoint::verifyAuthorizationServerUrl($endpoint, 'registration endpoint', $this->allowInsecureLoopback);
+        $this->secureEndpoint->verifyAuthorizationServerUrl($endpoint, 'registration endpoint');
 
         $request = new Request($endpoint, 'POST', json_encode([
             'client_name' => $options->clientName,

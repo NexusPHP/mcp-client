@@ -24,12 +24,21 @@ use Nexus\Mcp\Core\SafeDisplay;
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */
-final class SecureEndpoint
+final readonly class SecureEndpoint
 {
     /**
-     * Verifies the redirect URI, the one URL the spec lets address a loopback listener over plain HTTP.
+     * @param bool $allowLoopback Admits cleartext on a loopback host, which the spec does not exempt. Off
+     *                            unless the caller opted in through `AuthorizationOptions`.
      */
-    public static function verifyRedirectUri(string $url): void
+    public function __construct(private bool $allowLoopback = false)
+    {
+    }
+
+    /**
+     * Verifies the redirect URI, the one URL the spec lets address a loopback listener over plain
+     * HTTP unconditionally, so the loopback opt-in plays no part.
+     */
+    public function verifyRedirectUri(string $url): void
     {
         $label = 'redirect URI';
         $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
@@ -45,15 +54,11 @@ final class SecureEndpoint
         throw new InsecureAuthorizationEndpointException($label, $url);
     }
 
-    /**
-     * @param bool $allowLoopback Admits cleartext on a loopback host, which the spec does not exempt. Off
-     *                            unless the caller opted in through `AuthorizationOptions`.
-     */
-    public static function verifyAuthorizationServerUrl(string $url, string $label, bool $allowLoopback = false): void
+    public function verifyAuthorizationServerUrl(string $url, string $label): void
     {
         $parts = self::parse($url);
 
-        if (null === $parts || ! self::isSecureScheme($parts, $allowLoopback)) {
+        if (null === $parts || ! self::isSecureScheme($parts, $this->allowLoopback)) {
             throw new UntrustedAuthorizationMetadataException(\sprintf(
                 'the %s "%s" is not an absolute HTTPS URL.',
                 $label,
@@ -71,11 +76,12 @@ final class SecureEndpoint
     }
 
     /**
-     * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a path.
+     * Verifies a Client ID Metadata Document URL, which the spec holds to HTTPS and to carrying a
+     * path, with no loopback exemption for the opt-in to widen.
      *
      * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
      */
-    public static function verifyClientIdMetadataDocumentUrl(string $url): void
+    public function verifyClientIdMetadataDocumentUrl(string $url): void
     {
         $label = 'Client ID Metadata Document URL';
         $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
