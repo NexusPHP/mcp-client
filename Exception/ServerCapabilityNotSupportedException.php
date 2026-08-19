@@ -23,7 +23,7 @@ final class ServerCapabilityNotSupportedException extends \LogicException implem
     public function __construct(string $method)
     {
         parent::__construct(\sprintf(
-            'Request method "%s" requires a server capability that was not advertised by server/discover.',
+            'Request method "%s" requires a server capability that was not advertised by server/discover. Check getServerCapabilities() before calling.',
             $method,
         ));
     }
