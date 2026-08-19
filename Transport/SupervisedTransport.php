@@ -33,7 +33,7 @@ use Revolt\EventLoop;
 /**
  * Transport that mints each connection from a factory and respawns the peer when one ends unasked.
  *
- * @see docs/transports.md for the close, budget and retry semantics.
+ * @see docs/transports/supervised.md for the close, budget and retry semantics.
  */
 final class SupervisedTransport implements ReconnectingTransportInterface
 {
