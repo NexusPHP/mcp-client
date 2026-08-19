@@ -109,10 +109,16 @@ final class StdioClientTransport implements SupervisableTransportInterface
     public static function buildDefaultEnvironment(?array $source = null): array
     {
         $source ??= getenv();
+        $byUpperName = [];
+
+        foreach ($source as $sourceName => $sourceValue) {
+            $byUpperName[strtoupper($sourceName)] ??= $sourceValue;
+        }
+
         $environment = [];
 
         foreach (self::INHERITED_ENV_NAMES as $name) {
-            $value = $source[$name] ?? null;
+            $value = $source[$name] ?? $byUpperName[$name] ?? null;
 
             if (null === $value) {
                 continue;
