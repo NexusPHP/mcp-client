@@ -9,6 +9,17 @@
             "email": "paulbalandan@gmail.com"
         }
     ],
+    "support": {
+        "docs": "https://nexusphp.github.io/mcp/",
+        "issues": "https://github.com/NexusPHP/mcp/issues",
+        "source": "https://github.com/NexusPHP/mcp.git"
+    },
+    "funding": [
+        {
+            "type": "github",
+            "url": "https://github.com/sponsors/paulbalandan"
+        }
+    ],
     "require": {
         "php": "^8.3",
         "amphp/amp": "^3.1.1",
