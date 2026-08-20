@@ -313,6 +313,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             if (\is_array($decoded)
                 && JsonRpcMessage::JSONRPC_VERSION === ($decoded['jsonrpc'] ?? null)
                 && $message->id->id === ($decoded['id'] ?? null)
+                && ! \array_key_exists('method', $decoded)
                 && (\array_key_exists('result', $decoded) || \array_key_exists('error', $decoded))
             ) {
                 Assert::that($decoded)->isMap(\sprintf('%s received a response envelope that is not a string-keyed object.', self::LABEL));

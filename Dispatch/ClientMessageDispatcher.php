@@ -107,7 +107,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     #[\Override]
     public function dispatch(array $envelope, TransportInterface $transport, ReceiveContext $context): void
     {
-        if (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope)) {
+        if (! \array_key_exists('method', $envelope) && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))) {
             $this->dispatchResponseEnvelope($envelope);
         } else {
             $this->dispatchInboundEnvelope($envelope, $transport);
@@ -176,6 +176,11 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
             return;
         } catch (AbstractJsonRpcProtocolException $e) {
+            // A peer that named a result or an error against this id will send nothing further for it, so the awaiter must not keep waiting.
+            if (null !== $e->requestId && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))) {
+                $this->outboundRequests->reject($e->requestId, $e);
+            }
+
             if ($isNotification) {
                 $this->logger->info(
                     'Dropping malformed notification (JSON-RPC 2.0 §4.1 forbids responses to notifications).',
