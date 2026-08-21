@@ -107,13 +107,13 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $scopeUpgrades = 0;
         $reauthorized = false;
 
-        $bearsToken = $this->resource->sharesOriginWith((string) $request->getUri());
+        $bearsToken = $this->resource->covers((string) $request->getUri());
 
         while (true) {
             $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
             $attempt = self::authorizeRequest($request, $token);
             $response = $bearsToken
-                ? $this->followWithinOrigin($attempt, $cancellation)
+                ? $this->followWithinResource($attempt, $cancellation)
                 : $this->client->request($attempt, $cancellation);
 
             if (! $bearsToken) {
@@ -181,9 +181,9 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     /**
      * @throws RedirectRefusedException
      */
-    private function followWithinOrigin(Request $request, Cancellation $cancellation): Response
+    private function followWithinResource(Request $request, Cancellation $cancellation): Response
     {
-        $origin = (string) $request->getUri();
+        $from = (string) $request->getUri();
         $previous = null;
         $response = null;
 
@@ -196,10 +196,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 return $response;
             }
 
-            if (! $this->resource->sharesOriginWith($location)) {
+            if (! $this->resource->covers($location)) {
                 self::drain($response, $cancellation);
 
-                throw new RedirectRefusedException($origin, $location);
+                throw new RedirectRefusedException($from, $location);
             }
 
             self::drain($response, $cancellation);
