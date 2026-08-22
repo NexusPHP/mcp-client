@@ -41,13 +41,13 @@ final readonly class SecureEndpoint
     public function verifyRedirectUri(string $url): void
     {
         $label = 'redirect URI';
-        $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
+        $parts = $this->parse($url) ?? throw new \InvalidArgumentException(\sprintf(
             'The %s must be an absolute URL, "%s" given.',
             $label,
             $url,
         ));
 
-        if ('https' === $parts['scheme'] || self::isLoopback($parts['host'])) {
+        if ('https' === $parts['scheme'] || $this->isLoopback($parts['host'])) {
             return;
         }
 
@@ -56,9 +56,9 @@ final readonly class SecureEndpoint
 
     public function verifyAuthorizationServerUrl(string $url, string $label): void
     {
-        $parts = self::parse($url);
+        $parts = $this->parse($url);
 
-        if (null === $parts || ! self::isSecureScheme($parts, $this->allowLoopback)) {
+        if (null === $parts || ! $this->isSecureScheme($parts, $this->allowLoopback)) {
             throw new UntrustedAuthorizationMetadataException(\sprintf(
                 'the %s "%s" is not an absolute HTTPS URL.',
                 $label,
@@ -84,7 +84,7 @@ final readonly class SecureEndpoint
     public function verifyClientIdMetadataDocumentUrl(string $url): void
     {
         $label = 'Client ID Metadata Document URL';
-        $parts = self::parse($url) ?? throw new \InvalidArgumentException(\sprintf(
+        $parts = $this->parse($url) ?? throw new \InvalidArgumentException(\sprintf(
             'The %s must be an absolute URL, "%s" given.',
             $label,
             $url,
@@ -102,7 +102,7 @@ final readonly class SecureEndpoint
     /**
      * @return null|array{scheme: string, host: string, path: string, fragment: string}
      */
-    private static function parse(string $url): ?array
+    private function parse(string $url): ?array
     {
         $parts = parse_url($url);
 
@@ -121,16 +121,16 @@ final readonly class SecureEndpoint
     /**
      * @param array{scheme: string, host: string, path: string, fragment: string} $parts
      */
-    private static function isSecureScheme(array $parts, bool $allowLoopback): bool
+    private function isSecureScheme(array $parts, bool $allowLoopback): bool
     {
         if ('https' === $parts['scheme']) {
             return true;
         }
 
-        return $allowLoopback && 'http' === $parts['scheme'] && self::isLoopback($parts['host']);
+        return $allowLoopback && 'http' === $parts['scheme'] && $this->isLoopback($parts['host']);
     }
 
-    private static function isLoopback(string $host): bool
+    private function isLoopback(string $host): bool
     {
         $host = trim($host, '[]');
 

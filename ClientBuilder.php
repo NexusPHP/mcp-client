@@ -402,8 +402,8 @@ final class ClientBuilder
                 maxInFlight: $this->maxInFlight,
             ),
             $outboundRequests,
-            $this->requestIdFactory ?? self::buildDefaultRequestIdFactory(),
-            $this->progressTokenFactory ?? self::buildDefaultProgressTokenFactory(),
+            $this->requestIdFactory ?? $this->buildDefaultRequestIdFactory(),
+            $this->progressTokenFactory ?? $this->buildDefaultProgressTokenFactory(),
             progressListeners: $progressListeners,
             subscriptions: $subscriptions,
             logger: $this->logger,
@@ -457,7 +457,7 @@ final class ClientBuilder
     /**
      * @return \Closure(): int
      */
-    private static function buildDefaultRequestIdFactory(): \Closure
+    private function buildDefaultRequestIdFactory(): \Closure
     {
         $counter = 0;
 
@@ -469,7 +469,7 @@ final class ClientBuilder
     /**
      * @return \Closure(): non-empty-string
      */
-    private static function buildDefaultProgressTokenFactory(): \Closure
+    private function buildDefaultProgressTokenFactory(): \Closure
     {
         $counter = 0;
 

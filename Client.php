@@ -356,7 +356,7 @@ final class Client
                 return;
             }
 
-            self::abortExchange($transport, $id);
+            $this->abortExchange($transport, $id);
 
             try {
                 $transport->send(new CancelledNotification(
@@ -656,14 +656,14 @@ final class Client
 
         foreach (self::RETRYABLE_REQUESTS as $retryable) {
             if ($retryable::getMethod() === $method) {
-                return ! self::resumesAnEarlierRound($request->params);
+                return ! $this->resumesAnEarlierRound($request->params);
             }
         }
 
         return false;
     }
 
-    private static function resumesAnEarlierRound(?RequestParamsInterface $params): bool
+    private function resumesAnEarlierRound(?RequestParamsInterface $params): bool
     {
         if (! $params instanceof InputResponseCarrierInterface) {
             return false;
@@ -672,7 +672,7 @@ final class Client
         return $params->getInputResponses() !== null || $params->getRequestState() !== null;
     }
 
-    private static function abortExchange(TransportInterface $transport, RequestId $id): void
+    private function abortExchange(TransportInterface $transport, RequestId $id): void
     {
         if ($transport instanceof AbortableTransportInterface) {
             $transport->abort($id);
@@ -901,7 +901,7 @@ final class Client
             return null;
         }
 
-        $version = self::pickSupportedVersion($error->supported);
+        $version = $this->pickSupportedVersion($error->supported);
 
         if (null === $version) {
             return null;
@@ -931,7 +931,7 @@ final class Client
      *
      * @param list<string> $supported
      */
-    private static function pickSupportedVersion(array $supported): ?string
+    private function pickSupportedVersion(array $supported): ?string
     {
         foreach ($supported as $version) {
             if (\in_array($version, ProtocolVersion::SUPPORTED_VERSIONS, true)) {
@@ -952,7 +952,7 @@ final class Client
         CancelledException $cause,
     ): RequestTimeoutException {
         $this->outboundRequests->forget($request->id);
-        self::abortExchange($transport, $request->id);
+        $this->abortExchange($transport, $request->id);
 
         try {
             $transport->send(new CancelledNotification(

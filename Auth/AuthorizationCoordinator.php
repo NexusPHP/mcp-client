@@ -80,7 +80,7 @@ final class AuthorizationCoordinator
             return null;
         }
 
-        if ($this->discovered?->server->issuer === $token->issuer && ! self::hasExpired($token)) {
+        if ($this->discovered?->server->issuer === $token->issuer && ! $this->hasExpired($token)) {
             return $token;
         }
 
@@ -279,7 +279,7 @@ final class AuthorizationCoordinator
             return null;
         }
 
-        if (! self::hasExpired($token)) {
+        if (! $this->hasExpired($token)) {
             return $token;
         }
 
@@ -377,7 +377,7 @@ final class AuthorizationCoordinator
         };
     }
 
-    private static function hasExpired(AccessToken $token): bool
+    private function hasExpired(AccessToken $token): bool
     {
         return null !== $token->expiresAt && $token->expiresAt <= time() + self::EXPIRY_LEEWAY_SECONDS;
     }

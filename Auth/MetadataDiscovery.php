@@ -78,9 +78,9 @@ final readonly class MetadataDiscovery
                 continue;
             }
 
-            $metadata = self::readResource($data);
+            $metadata = $this->readResource($data);
 
-            if (! self::describesResource($metadata->resource->value, $resource->value)) {
+            if (! $this->describesResource($metadata->resource->value, $resource->value)) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
                     'the document served for "%s" names the resource "%s".',
                     $resource->value,
@@ -91,7 +91,7 @@ final readonly class MetadataDiscovery
             return $metadata;
         }
 
-        self::refuseDiscovery('protected resource metadata', $resource->value, $candidates);
+        $this->refuseDiscovery('protected resource metadata', $resource->value, $candidates);
     }
 
     public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
@@ -106,7 +106,7 @@ final readonly class MetadataDiscovery
                 continue;
             }
 
-            $metadata = self::readServer($data);
+            $metadata = $this->readServer($data);
 
             if ($metadata->issuer !== $issuer) {
                 throw new UntrustedAuthorizationMetadataException(\sprintf(
@@ -116,19 +116,19 @@ final readonly class MetadataDiscovery
                 ));
             }
 
-            self::verifyPkceSupport($metadata);
+            $this->verifyPkceSupport($metadata);
 
             return $metadata;
         }
 
-        self::refuseDiscovery('authorization server metadata', $issuer, $candidates);
+        $this->refuseDiscovery('authorization server metadata', $issuer, $candidates);
     }
 
     /**
      * Whether a document naming `$named` may be trusted to describe `$resource`, which RFC 9728 extends to
      * the origin the root well-known URL is assigned to.
      */
-    private static function describesResource(string $named, string $resource): bool
+    private function describesResource(string $named, string $resource): bool
     {
         return $named === $resource || WellKnownUri::originOf($resource) === $named;
     }
@@ -152,12 +152,12 @@ final readonly class MetadataDiscovery
      *
      * @throws UntrustedAuthorizationMetadataException
      */
-    private static function readResource(array $data): ProtectedResourceMetadata
+    private function readResource(array $data): ProtectedResourceMetadata
     {
         try {
             return ProtectedResourceMetadata::fromArray($data);
         } catch (\InvalidArgumentException $e) {
-            throw self::describeUnreadable(self::RESOURCE_LABEL, $e);
+            throw $this->describeUnreadable(self::RESOURCE_LABEL, $e);
         }
     }
 
@@ -166,16 +166,16 @@ final readonly class MetadataDiscovery
      *
      * @throws UntrustedAuthorizationMetadataException
      */
-    private static function readServer(array $data): AuthorizationServerMetadata
+    private function readServer(array $data): AuthorizationServerMetadata
     {
         try {
             return AuthorizationServerMetadata::fromArray($data);
         } catch (\InvalidArgumentException $e) {
-            throw self::describeUnreadable(self::SERVER_LABEL, $e);
+            throw $this->describeUnreadable(self::SERVER_LABEL, $e);
         }
     }
 
-    private static function describeUnreadable(string $label, \InvalidArgumentException $cause): UntrustedAuthorizationMetadataException
+    private function describeUnreadable(string $label, \InvalidArgumentException $cause): UntrustedAuthorizationMetadataException
     {
         return new UntrustedAuthorizationMetadataException(
             \sprintf('the %s answered with a document off the shape the spec fixes.', $label),
@@ -183,7 +183,7 @@ final readonly class MetadataDiscovery
         );
     }
 
-    private static function verifyPkceSupport(AuthorizationServerMetadata $metadata): void
+    private function verifyPkceSupport(AuthorizationServerMetadata $metadata): void
     {
         $methods = $metadata->codeChallengeMethodsSupported;
 
@@ -195,7 +195,7 @@ final readonly class MetadataDiscovery
     /**
      * @param list<string> $probed
      */
-    private static function refuseDiscovery(string $document, string $subject, array $probed): never
+    private function refuseDiscovery(string $document, string $subject, array $probed): never
     {
         throw new RuntimeException(\sprintf(
             'No %s was served for "%s". Probed: %s.',

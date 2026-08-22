@@ -109,7 +109,7 @@ final readonly class TokenEndpoint
         $headers = ['Content-Type' => 'application/x-www-form-urlencoded'];
 
         if (TokenEndpointAuthMethod::ClientSecretBasic === $registration->tokenEndpointAuthMethod) {
-            $headers['Authorization'] = self::buildBasicCredentials($registration);
+            $headers['Authorization'] = $this->buildBasicCredentials($registration);
         } elseif (TokenEndpointAuthMethod::PrivateKeyJwt === $registration->tokenEndpointAuthMethod) {
             Assert::that($parameters)->hasOffset('client_assertion', \sprintf(
                 'Client "%s" must carry a "client_assertion" parameter to authenticate with "private_key_jwt".',
@@ -120,7 +120,7 @@ final readonly class TokenEndpoint
 
             if (TokenEndpointAuthMethod::ClientSecretPost === $registration->tokenEndpointAuthMethod) {
                 $secret = $registration->clientSecret;
-                Assert::that($secret)->isString(self::describeMissingSecret($registration));
+                Assert::that($secret)->isString($this->describeMissingSecret($registration));
                 $parameters['client_secret'] = $secret;
             }
         }
@@ -137,7 +137,7 @@ final readonly class TokenEndpoint
                 throw $e;
             }
 
-            throw self::buildTokenFailure(
+            throw $this->buildTokenFailure(
                 'invalid_request',
                 \sprintf('The token endpoint answered %d with a body that is not a JSON object.', $status),
             );
@@ -150,23 +150,23 @@ final readonly class TokenEndpoint
             throw match (true) {
                 self::CLIENT_REJECTION === $error => new ClientRegistrationRejectedException($description),
                 \in_array($error, self::GRANT_REJECTIONS, true) => new AuthorizationGrantRejectedException($error, $description),
-                default => self::buildTokenFailure($error, $description),
+                default => $this->buildTokenFailure($error, $description),
             };
         }
 
-        return self::readToken($data, $metadata->issuer, $requestedScopes, $priorRefreshToken);
+        return $this->readToken($data, $metadata->issuer, $requestedScopes, $priorRefreshToken);
     }
 
     /**
      * @param array<string, mixed> $data
      * @param string               $issuer Stamped on the token so a store can be read back without repeating discovery
      */
-    private static function readToken(array $data, string $issuer, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
+    private function readToken(array $data, string $issuer, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
     {
         $type = MetadataReader::readRequiredString($data, 'token_type', self::LABEL);
 
         if (strcasecmp($type, WwwAuthenticateChallenge::BEARER_SCHEME) !== 0) {
-            throw self::buildTokenFailure(
+            throw $this->buildTokenFailure(
                 'unsupported_token_type',
                 \sprintf('MCP clients can only present bearer tokens, "%s" given.', SafeDisplay::sanitise($type)),
             );
@@ -184,10 +184,10 @@ final readonly class TokenEndpoint
         );
     }
 
-    private static function buildBasicCredentials(ClientRegistration $registration): string
+    private function buildBasicCredentials(ClientRegistration $registration): string
     {
         $secret = $registration->clientSecret;
-        Assert::that($secret)->isString(self::describeMissingSecret($registration));
+        Assert::that($secret)->isString($this->describeMissingSecret($registration));
 
         return 'Basic '.base64_encode(urlencode($registration->clientId).':'.urlencode($secret));
     }
@@ -195,7 +195,7 @@ final readonly class TokenEndpoint
     /**
      * @return non-empty-string
      */
-    private static function describeMissingSecret(ClientRegistration $registration): string
+    private function describeMissingSecret(ClientRegistration $registration): string
     {
         return \sprintf(
             'Client "%s" must carry a secret to authenticate with "%s".',
@@ -204,7 +204,7 @@ final readonly class TokenEndpoint
         );
     }
 
-    private static function buildTokenFailure(string $error, ?string $description): RuntimeException
+    private function buildTokenFailure(string $error, ?string $description): RuntimeException
     {
         return new RuntimeException(\sprintf(
             'The token request failed with "%s"%s',

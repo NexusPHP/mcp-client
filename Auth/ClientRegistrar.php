@@ -60,7 +60,7 @@ final readonly class ClientRegistrar
                     $preRegistered->clientId,
                     $metadata->issuer,
                     $preRegistered->clientSecret,
-                    self::bindAuthMethod($preRegistered),
+                    $this->bindAuthMethod($preRegistered),
                 );
             }
 
@@ -124,7 +124,7 @@ final readonly class ClientRegistrar
         $data = JsonHttpExchange::decode($payload, 'registration endpoint');
 
         if ($status >= 400) {
-            throw self::buildRegistrationFailure(
+            throw $this->buildRegistrationFailure(
                 MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
                 MetadataReader::readErrorField($data, 'error_description', self::LABEL),
             );
@@ -136,11 +136,11 @@ final readonly class ClientRegistrar
             MetadataReader::readRequiredString($data, 'client_id', self::LABEL),
             $metadata->issuer,
             $secret,
-            self::resolveAuthMethod($data, $secret),
+            $this->resolveAuthMethod($data, $secret),
         );
     }
 
-    private static function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
+    private function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
     {
         if (TokenEndpointAuthMethod::None !== $registration->tokenEndpointAuthMethod || null === $registration->clientSecret) {
             return $registration->tokenEndpointAuthMethod;
@@ -152,7 +152,7 @@ final readonly class ClientRegistrar
     /**
      * @param array<string, mixed> $data
      */
-    private static function resolveAuthMethod(array $data, ?string $secret): TokenEndpointAuthMethod
+    private function resolveAuthMethod(array $data, ?string $secret): TokenEndpointAuthMethod
     {
         $declared = MetadataReader::readString($data, 'token_endpoint_auth_method', self::LABEL);
 
@@ -163,7 +163,7 @@ final readonly class ClientRegistrar
         $method = TokenEndpointAuthMethod::tryFrom($declared);
 
         if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
-            throw self::buildRegistrationFailure(
+            throw $this->buildRegistrationFailure(
                 'invalid_client_metadata',
                 \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', SafeDisplay::sanitise($declared)),
             );
@@ -172,7 +172,7 @@ final readonly class ClientRegistrar
         return $method;
     }
 
-    private static function buildRegistrationFailure(string $error, ?string $description): RuntimeException
+    private function buildRegistrationFailure(string $error, ?string $description): RuntimeException
     {
         return new RuntimeException(\sprintf(
             'Dynamic Client Registration failed with "%s"%s',

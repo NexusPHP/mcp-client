@@ -29,7 +29,7 @@ final class SubscriptionRegistry
 
     public function register(OpenSubscription $subscription): void
     {
-        $this->subscriptions[self::buildKey($subscription->subscriptionId)] = $subscription;
+        $this->subscriptions[$this->buildKey($subscription->subscriptionId)] = $subscription;
     }
 
     /**
@@ -37,7 +37,7 @@ final class SubscriptionRegistry
      */
     public function forget(RequestId $id): ?OpenSubscription
     {
-        $key = self::buildKey($id);
+        $key = $this->buildKey($id);
         $subscription = $this->subscriptions[$key] ?? null;
         unset($this->subscriptions[$key]);
 
@@ -46,7 +46,7 @@ final class SubscriptionRegistry
 
     public function get(RequestId $id): ?OpenSubscription
     {
-        return $this->subscriptions[self::buildKey($id)] ?? null;
+        return $this->subscriptions[$this->buildKey($id)] ?? null;
     }
 
     /**
@@ -73,7 +73,7 @@ final class SubscriptionRegistry
     /**
      * @return non-empty-string
      */
-    private static function buildKey(RequestId $id): string
+    private function buildKey(RequestId $id): string
     {
         return \sprintf('"subscriptionId":%s', var_export($id->id, true));
     }

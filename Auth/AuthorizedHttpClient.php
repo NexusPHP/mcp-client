@@ -111,7 +111,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
         while (true) {
             $token = $bearsToken ? $this->coordinator->fetchToken($cancellation) : null;
-            $attempt = self::authorizeRequest($request, $token);
+            $attempt = $this->authorizeRequest($request, $token);
             $response = $bearsToken
                 ? $this->followWithinResource($attempt, $cancellation)
                 : $this->client->request($attempt, $cancellation);
@@ -126,7 +126,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 return $response;
             }
 
-            $challenge = self::readChallenge($response);
+            $challenge = $this->readChallenge($response);
 
             if (HttpStatus::Forbidden->value === $status) {
                 if (null === $challenge || self::INSUFFICIENT_SCOPE !== $challenge->readParameter('error')) {
@@ -137,7 +137,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 $challenged = ScopeSet::parse($declaredScope);
 
                 if (InsufficientScopePolicy::Fail === $this->options->onInsufficientScope) {
-                    self::reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
+                    $this->reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
                 }
 
                 if ($scopeUpgrades >= $this->options->maxScopeUpgrades) {
@@ -146,23 +146,23 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'attempts' => $scopeUpgrades,
                     ]);
 
-                    self::reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation, null !== $declaredScope);
+                    $this->reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation, null !== $declaredScope);
                 }
 
                 if ((new ScopeSet($token->scopes ?? []))->containsAll($challenged)) {
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
                         'scopes' => SafeDisplay::sanitiseCause(
-                            $challenged->toParameter() ?? self::describeUnusableChallenge($declaredScope),
+                            $challenged->toParameter() ?? $this->describeUnusableChallenge($declaredScope),
                         ),
                     ]);
 
-                    self::reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
+                    $this->reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
                 }
 
                 ++$scopeUpgrades;
                 $additionalScopes = $additionalScopes->mergeWith($challenged);
-                self::drain($response, $cancellation);
+                $this->drain($response, $cancellation);
                 $this->coordinator->upgradeScopes($token, $additionalScopes, $challenge, $cancellation);
 
                 continue;
@@ -173,7 +173,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             }
 
             $reauthorized = true;
-            self::drain($response, $cancellation);
+            $this->drain($response, $cancellation);
             $this->coordinator->reauthorize($token, $challenge, $cancellation);
         }
     }
@@ -190,21 +190,21 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; ++$hop) {
             $response = $this->sealedClient->request($request, $cancellation);
             $response->setPreviousResponse($previous);
-            $location = self::readRedirectTarget($response, $request);
+            $location = $this->readRedirectTarget($response, $request);
 
             if (null === $location) {
                 return $response;
             }
 
             if (! $this->resource->covers($location)) {
-                self::drain($response, $cancellation);
+                $this->drain($response, $cancellation);
 
                 throw new RedirectRefusedException($from, $location);
             }
 
-            self::drain($response, $cancellation);
+            $this->drain($response, $cancellation);
             $previous = $response;
-            $request = self::cloneForRedirect($request, $location);
+            $request = $this->cloneForRedirect($request, $location);
         }
 
         \assert($response instanceof Response);
@@ -212,7 +212,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         throw new TooManyRedirectsException($response);
     }
 
-    private static function readRedirectTarget(Response $response, Request $request): ?string
+    private function readRedirectTarget(Response $response, Request $request): ?string
     {
         $status = $response->getStatus();
 
@@ -241,7 +241,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return (string) FollowRedirects::resolve($request->getUri(), $target->getUri());
     }
 
-    private static function cloneForRedirect(Request $request, string $location): Request
+    private function cloneForRedirect(Request $request, string $location): Request
     {
         $redirected = clone $request;
         $redirected->setUri($location);
@@ -256,19 +256,19 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     /**
      * @return non-empty-string
      */
-    private static function describeUnusableChallenge(?string $declaredScope): string
+    private function describeUnusableChallenge(?string $declaredScope): string
     {
         return null === $declaredScope ? 'no scope at all' : 'only scopes that are not RFC 6749 scope-tokens';
     }
 
-    private static function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation, bool $named): never
+    private function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation, bool $named): never
     {
-        self::drain($response, $cancellation);
+        $this->drain($response, $cancellation);
 
         throw new InsufficientScopeException($challenged->values, $named);
     }
 
-    private static function drain(Response $response, Cancellation $cancellation): void
+    private function drain(Response $response, Cancellation $cancellation): void
     {
         try {
             $response->getBody()->buffer($cancellation, limit: self::MAX_CHALLENGE_BODY_BYTES);
@@ -277,7 +277,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         }
     }
 
-    private static function authorizeRequest(Request $request, ?AccessToken $token): Request
+    private function authorizeRequest(Request $request, ?AccessToken $token): Request
     {
         // The request is cloned per attempt so a retry never carries the header a spent token set.
         $attempt = clone $request;
@@ -289,7 +289,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return $attempt;
     }
 
-    private static function readChallenge(Response $response): ?WwwAuthenticateChallenge
+    private function readChallenge(Response $response): ?WwwAuthenticateChallenge
     {
         $header = $response->getHeader('WWW-Authenticate');
 

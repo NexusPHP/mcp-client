@@ -162,7 +162,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         if (null !== $requestId) {
             $abort = new DeferredCancellation();
-            $this->inFlight[self::buildKey($requestId)] = $abort;
+            $this->inFlight[$this->buildKey($requestId)] = $abort;
             $held = $abort;
 
             $cancellation = new CompositeCancellation($cancellation, $abort->getCancellation());
@@ -186,7 +186,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             }
 
             if (null !== $requestId) {
-                $key = self::buildKey($requestId);
+                $key = $this->buildKey($requestId);
 
                 if (($this->inFlight[$key] ?? null) === $held) {
                     unset($this->inFlight[$key]);
@@ -260,7 +260,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     #[\Override]
     public function abort(RequestId $id): void
     {
-        ($this->inFlight[self::buildKey($id)] ?? null)?->cancel();
+        ($this->inFlight[$this->buildKey($id)] ?? null)?->cancel();
     }
 
     /**
@@ -276,7 +276,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     /**
      * @return non-empty-string
      */
-    private static function buildKey(RequestId $id): string
+    private function buildKey(RequestId $id): string
     {
         return \sprintf('"id":%s', var_export($id->id, true));
     }
@@ -298,7 +298,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         }
 
         if (HttpStatus::Ok->value !== $status) {
-            if (! $message instanceof JsonRpcRequest || self::isEventStream($response)) {
+            if (! $message instanceof JsonRpcRequest || $this->isEventStream($response)) {
                 throw new UnexpectedHttpStatusException($status);
             }
 
@@ -325,13 +325,13 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             throw new UnexpectedHttpStatusException($status, $payload);
         }
 
-        if (self::isEventStream($response)) {
+        if ($this->isEventStream($response)) {
             $this->readStream($response, $cancellation);
 
             return;
         }
 
-        $this->events->emitMessage(self::decode($this->buffer($response, $cancellation)), new ReceiveContext());
+        $this->events->emitMessage($this->decode($this->buffer($response, $cancellation)), new ReceiveContext());
     }
 
     /**
@@ -375,7 +375,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         while (null !== $chunk) {
             foreach ($parser->feed($chunk) as $frame) {
                 try {
-                    $envelope = self::decode($frame->data);
+                    $envelope = $this->decode($frame->data);
                 } catch (\InvalidArgumentException|\JsonException $e) {
                     $this->events->emitError($e);
 
@@ -395,7 +395,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
      * @throws \InvalidArgumentException
      * @throws \JsonException
      */
-    private static function decode(string $payload): array
+    private function decode(string $payload): array
     {
         $envelope = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
         Assert::that($envelope)->isMap(\sprintf('%s received a payload that is not a JSON-RPC envelope.', self::LABEL));
@@ -403,7 +403,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         return $envelope;
     }
 
-    private static function isEventStream(Response $response): bool
+    private function isEventStream(Response $response): bool
     {
         return str_starts_with(strtolower($response->getHeader('Content-Type') ?? ''), 'text/event-stream');
     }
