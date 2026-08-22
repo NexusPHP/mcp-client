@@ -22,6 +22,8 @@ use Amp\Http\Client\Interceptor\FollowRedirects;
 use Amp\Http\Client\Interceptor\TooManyRedirectsException;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
+use Amp\Sync\LocalSemaphore;
+use Amp\Sync\Semaphore;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Client\Exception\InsufficientScopeException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
@@ -56,6 +58,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
      * @param null|TokenStoreInterface              $tokens            Defaults to a store that lives only as long as the process
      * @param null|ClientRegistrationStoreInterface $registrations     Defaults to a store that lives only as long as the process
      * @param null|GrantStrategyInterface           $grantStrategy     An unattended grant run in place of the authorization-code round trip
+     * @param null|Semaphore                        $lock              Serialises grants and renewals, defaulting to one that spans this process only
      */
     public function __construct(
         string $resource,
@@ -66,6 +69,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         ?ClientRegistrationStoreInterface $registrations = null,
         private readonly LoggerInterface $logger = new NullLogger(),
         ?GrantStrategyInterface $grantStrategy = null,
+        ?Semaphore $lock = null,
     ) {
         if (null !== $userAuthorization) {
             Assert::that($grantStrategy)->isNull('A user authorization and a grant strategy were both given, and the client can run only one.');
@@ -97,6 +101,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             $tokens ?? new InMemoryTokenStore(),
             $this->options,
             $this->logger,
+            $lock ?? new LocalSemaphore(1),
         );
     }
 
