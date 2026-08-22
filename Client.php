@@ -121,6 +121,13 @@ final class Client
     public const float DEFAULT_MAX_REQUEST_TIMEOUT = 600.0;
 
     private const int MAX_HEADER_REFRESH_PAGES = 100;
+    private const array LIFECYCLE_META_KEYS = [
+        RequestMetaObject::PROTOCOL_VERSION_KEY => true,
+        RequestMetaObject::CLIENT_INFO_KEY => true,
+        RequestMetaObject::CLIENT_CAPABILITIES_KEY => true,
+        RequestMetaObject::LOG_LEVEL_KEY => true,
+        'progressToken' => true,
+    ];
     private const array RETRYABLE_REQUESTS = [
         CompleteRequest::class,
         DiscoverRequest::class,
@@ -146,9 +153,10 @@ final class Client
     private array $listeners = [];
 
     /**
-     * @param \Closure(): (int|non-empty-string)        $requestIdFactory
-     * @param \Closure(): (int|non-empty-string)        $progressTokenFactory
-     * @param array<non-empty-string, non-empty-string> $extensionMethods
+     * @param \Closure(): (int|non-empty-string)              $requestIdFactory
+     * @param \Closure(): (int|non-empty-string)              $progressTokenFactory
+     * @param array<non-empty-string, non-empty-string>       $extensionMethods
+     * @param null|\Closure(): array<non-empty-string, mixed> $metaExtrasFactory
      */
     public function __construct(
         private readonly Implementation $clientInfo,
@@ -166,6 +174,7 @@ final class Client
         private readonly bool $retryLostRequests = false,
         private readonly array $extensionMethods = [],
         private readonly DiscoveredServerCapabilities $serverCapabilities = new DiscoveredServerCapabilities(),
+        private readonly ?\Closure $metaExtrasFactory = null,
     ) {
     }
 
@@ -588,6 +597,7 @@ final class Client
             clientInfo: $this->clientInfo,
             clientCapabilities: $this->clientCapabilities,
             progressToken: $progressToken,
+            extras: null === $this->metaExtrasFactory ? [] : array_diff_key(($this->metaExtrasFactory)(), self::LIFECYCLE_META_KEYS),
         );
     }
 

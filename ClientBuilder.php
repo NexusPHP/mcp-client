@@ -100,6 +100,11 @@ final class ClientBuilder
      */
     private ?\Closure $progressTokenFactory = null;
 
+    /**
+     * @var null|\Closure(): array<non-empty-string, mixed>
+     */
+    private ?\Closure $metaExtrasFactory = null;
+
     public function __construct()
     {
         $this->clientCapabilities = new ClientCapabilities();
@@ -252,6 +257,20 @@ final class ClientBuilder
     }
 
     /**
+     * Sets the factory called once per outbound request for the extra `_meta` keys it carries, such as the W3C
+     * `traceparent`. A lifecycle key it returns is ignored.
+     *
+     * @param \Closure(): array<non-empty-string, mixed> $factory
+     */
+    public function setMetaExtrasFactory(\Closure $factory): self
+    {
+        $this->assertNotBuilt();
+        $this->metaExtrasFactory = $factory;
+
+        return $this;
+    }
+
+    /**
      * @param non-empty-string                                                 $method
      * @param RequestHandlerInterface<non-empty-string, Result, ClientContext> $handler
      * @param class-string<JsonRpcRequest<non-empty-string>>                   $requestClass Parses inbound `$method` envelopes into typed requests
@@ -393,6 +412,7 @@ final class ClientBuilder
             retryLostRequests: $this->retryLostRequests,
             extensionMethods: $this->extensions->getOutboundOwners(),
             serverCapabilities: $discoveredCapabilities,
+            metaExtrasFactory: $this->metaExtrasFactory,
         );
     }
 
