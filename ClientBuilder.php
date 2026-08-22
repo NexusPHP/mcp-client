@@ -41,7 +41,6 @@ use Nexus\Mcp\Core\Schema\Notification\CancelledNotification;
 use Nexus\Mcp\Core\Schema\Notification\ProgressNotification;
 use Nexus\Mcp\Core\Schema\Result;
 use Nexus\Mcp\Core\Validation\IconSrcValidator;
-use Nexus\Mcp\Core\Validation\MethodClassValidator;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -271,26 +270,24 @@ final class ClientBuilder
     }
 
     /**
-     * @param non-empty-string                                                 $method
+     * @param class-string<JsonRpcRequest<non-empty-string>>                   $request
      * @param RequestHandlerInterface<non-empty-string, Result, ClientContext> $handler
-     * @param class-string<JsonRpcRequest<non-empty-string>>                   $requestClass Parses inbound `$method` envelopes into typed requests
      */
-    public function addRequestHandler(string $method, RequestHandlerInterface $handler, string $requestClass): self
+    public function addRequestHandler(string $request, RequestHandlerInterface $handler): self
     {
         $this->assertNotBuilt();
+        $method = $request::getMethod();
         $this->extensions->assertNotOwned($method);
-
-        MethodClassValidator::validate($requestClass, $method);
 
         $registry = JsonRpcMethodRegistry::requests();
 
         if (\array_key_exists($method, $registry)) {
-            Assert::that($requestClass)->isIdentical($registry[$method], \sprintf(
+            Assert::that($request)->isIdentical($registry[$method], \sprintf(
                 'Request method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
                 $method,
             ));
         } else {
-            $this->requestClasses[$method] = $requestClass;
+            $this->requestClasses[$method] = $request;
         }
 
         $this->requestHandlers[$method] = $handler;
@@ -299,41 +296,25 @@ final class ClientBuilder
     }
 
     /**
-     * `$notificationClass` is needed only for a vendor method that does not already parse.
-     *
-     * @param non-empty-string                                         $method
-     * @param NotificationHandlerInterface<non-empty-string>           $handler
-     * @param null|class-string<JsonRpcNotification<non-empty-string>> $notificationClass
+     * @param class-string<JsonRpcNotification<non-empty-string>> $notification
+     * @param NotificationHandlerInterface<non-empty-string>      $handler
      *
      * @throws LogicException
      */
-    public function addNotificationHandler(
-        string $method,
-        NotificationHandlerInterface $handler,
-        ?string $notificationClass = null,
-    ): self {
+    public function addNotificationHandler(string $notification, NotificationHandlerInterface $handler): self
+    {
         $this->assertNotBuilt();
+        $method = $notification::getMethod();
         $this->extensions->assertNotOwned($method, isNotification: true);
-
         $registryClass = JsonRpcMethodRegistry::notifications()[$method] ?? null;
 
-        if (null === $registryClass && null === $notificationClass) {
-            throw new LogicException(\sprintf(
-                'Notification method "%s" is not defined by the MCP specification, so its handler registration must name the $notificationClass that parses it.',
-                $method,
-            ));
-        }
-
-        if (null !== $registryClass && null !== $notificationClass) {
-            Assert::that($notificationClass)->isIdentical($registryClass, \sprintf(
+        if (null === $registryClass) {
+            $this->notificationClasses[$method] = $notification;
+        } else {
+            Assert::that($notification)->isIdentical($registryClass, \sprintf(
                 'Notification method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
                 $method,
             ));
-        }
-
-        if (null !== $notificationClass) {
-            MethodClassValidator::validate($notificationClass, $method, isNotification: true);
-            $this->notificationClasses[$method] = $notificationClass;
         }
 
         $this->notificationHandlers[$method] = $handler;
