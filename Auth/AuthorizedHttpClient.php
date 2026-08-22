@@ -42,7 +42,6 @@ use Psr\Log\NullLogger;
  */
 final class AuthorizedHttpClient implements DelegateHttpClient
 {
-    private const string INSUFFICIENT_SCOPE = 'insufficient_scope';
     private const int MAX_CHALLENGE_BODY_BYTES = 8_192;
     private const int MAX_REDIRECTS = 10;
 
@@ -134,7 +133,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
             $challenge = $this->readChallenge($response);
 
             if (HttpStatus::Forbidden->value === $status) {
-                if (null === $challenge || self::INSUFFICIENT_SCOPE !== $challenge->readParameter('error')) {
+                if (null === $challenge || $challenge->readParameter('error') !== 'insufficient_scope') {
                     return $response;
                 }
 

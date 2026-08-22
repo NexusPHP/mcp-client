@@ -63,8 +63,6 @@ use function Amp\async;
  */
 final readonly class ClientMessageDispatcher implements MessageDispatcherInterface
 {
-    private const string OVERLOADED_MESSAGE = 'Client overloaded';
-
     private PendingCoroutines $coroutines;
     private ResponseSender $responseSender;
     private LogThrottle $shedInbound;
@@ -292,7 +290,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 id: $request->id,
                 error: new UnknownProtocolError(
                     code: SdkErrorCode::Overloaded->value,
-                    message: self::OVERLOADED_MESSAGE,
+                    message: 'Client overloaded',
                 ),
             ), $method);
 

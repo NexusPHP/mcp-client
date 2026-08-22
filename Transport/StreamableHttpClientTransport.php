@@ -59,7 +59,6 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 {
     public const int DEFAULT_MAX_RESPONSE_BYTES = SseFrameParser::DEFAULT_MAX_FRAME_BYTES;
     private const string LABEL = 'Streamable HTTP client';
-    private const string ACCEPT = 'application/json, text/event-stream';
 
     private readonly DelegateHttpClient $client;
     private readonly TransportEvents $events;
@@ -357,7 +356,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         $request->setHeaders([
             'Content-Type' => 'application/json',
-            'Accept' => self::ACCEPT,
+            'Accept' => 'application/json, text/event-stream',
             ...$headers,
             ...$this->standardHeaders->build($message->toArray()),
         ]);

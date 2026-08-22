@@ -41,8 +41,6 @@ use Nexus\Mcp\Core\SafeDisplay;
 final readonly class TokenEndpoint
 {
     private const string LABEL = 'Token response';
-    private const array GRANT_REJECTIONS = ['invalid_grant', 'invalid_scope'];
-    private const string CLIENT_REJECTION = 'invalid_client';
     private const int MAX_LIFETIME_SECONDS = 315_360_000;
 
     private JsonHttpExchange $exchange;
@@ -148,8 +146,8 @@ final readonly class TokenEndpoint
             $description = MetadataReader::readErrorField($data, 'error_description', self::LABEL);
 
             throw match (true) {
-                self::CLIENT_REJECTION === $error => new ClientRegistrationRejectedException($description),
-                \in_array($error, self::GRANT_REJECTIONS, true) => new AuthorizationGrantRejectedException($error, $description),
+                'invalid_client' === $error => new ClientRegistrationRejectedException($description),
+                \in_array($error, ['invalid_grant', 'invalid_scope'], true) => new AuthorizationGrantRejectedException($error, $description),
                 default => $this->buildTokenFailure($error, $description),
             };
         }
