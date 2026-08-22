@@ -38,17 +38,11 @@ use Nexus\Mcp\Core\SafeDisplay;
  */
 final readonly class MetadataDiscovery
 {
-    private const string RESOURCE_LABEL = 'protected resource metadata URL';
-    private const string SERVER_LABEL = 'authorization server metadata URL';
-
-    private JsonHttpExchange $exchange;
-
     public function __construct(
-        DelegateHttpClient $client,
-        float $timeout = 10.0,
+        private DelegateHttpClient $client,
+        private float $timeout = 10.0,
         private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
     ) {
-        $this->exchange = new JsonHttpExchange($client, $timeout);
     }
 
     /**
@@ -72,7 +66,7 @@ final readonly class MetadataDiscovery
                 continue;
             }
 
-            $data = $this->fetch($url, self::RESOURCE_LABEL, $cancellation);
+            $data = $this->fetch($url, 'protected resource metadata URL', $cancellation);
 
             if (null === $data) {
                 continue;
@@ -100,7 +94,7 @@ final readonly class MetadataDiscovery
         $candidates = WellKnownUri::forAuthorizationServer($issuer);
 
         foreach ($candidates as $url) {
-            $data = $this->fetch($url, self::SERVER_LABEL, $cancellation);
+            $data = $this->fetch($url, 'authorization server metadata URL', $cancellation);
 
             if (null === $data) {
                 continue;
@@ -134,14 +128,17 @@ final readonly class MetadataDiscovery
     }
 
     /**
+     * @param non-empty-string $label
+     *
      * @return null|array<string, mixed> The decoded document, or `null` when nothing usable is served there
      */
     private function fetch(string $url, string $label, Cancellation $cancellation): ?array
     {
         try {
-            [$status, $payload] = $this->exchange->send(new Request($url, 'GET'), $cancellation);
+            $exchange = new JsonHttpExchange($this->client, $label, $this->timeout);
+            [$status, $payload] = $exchange->send(new Request($url, 'GET'), $cancellation);
 
-            return HttpStatus::Ok->value === $status ? JsonHttpExchange::decode($payload, $label) : null;
+            return HttpStatus::Ok->value === $status ? $exchange->decode($payload) : null;
         } catch (\InvalidArgumentException|MalformedAuthorizationResponseException|RedirectRefusedException|ResponseTooLargeException) {
             return null;
         }
@@ -157,7 +154,7 @@ final readonly class MetadataDiscovery
         try {
             return ProtectedResourceMetadata::fromArray($data);
         } catch (\InvalidArgumentException $e) {
-            throw $this->describeUnreadable(self::RESOURCE_LABEL, $e);
+            throw $this->describeUnreadable('protected resource metadata URL', $e);
         }
     }
 
@@ -171,7 +168,7 @@ final readonly class MetadataDiscovery
         try {
             return AuthorizationServerMetadata::fromArray($data);
         } catch (\InvalidArgumentException $e) {
-            throw $this->describeUnreadable(self::SERVER_LABEL, $e);
+            throw $this->describeUnreadable('authorization server metadata URL', $e);
         }
     }
 

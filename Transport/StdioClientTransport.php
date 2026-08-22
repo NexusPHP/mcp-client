@@ -35,7 +35,6 @@ use function Amp\async;
  */
 final class StdioClientTransport implements SupervisableTransportInterface
 {
-    private const string LABEL = 'Stdio client';
     private const array INHERITED_ENV_NAMES = [
         'APPDATA',
         'HOME',
@@ -80,12 +79,12 @@ final class StdioClientTransport implements SupervisableTransportInterface
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
         private readonly SubprocessLauncherInterface $launcher = new AmpSubprocessLauncher(),
     ) {
-        Assert::that($command)->isList(\sprintf('%s command must be a list, {type} given.', self::LABEL));
-        Assert::that(\count($command))->isPositiveInt(\sprintf('%s command must not be empty.', self::LABEL));
+        Assert::that($command)->isList('Stdio client command must be a list, {type} given.');
+        Assert::that(\count($command))->isPositiveInt('Stdio client command must not be empty.');
 
         $this->duplex = new LineDuplex(
             hostTransport: self::class,
-            label: self::LABEL,
+            label: 'Stdio client',
             logger: $logger,
             maxLineBytes: $maxLineBytes,
             onBeforeClose: function (): void {
@@ -147,8 +146,8 @@ final class StdioClientTransport implements SupervisableTransportInterface
         );
         // Arguments commonly carry credentials, so only the binary and their count are logged.
         $this->logger->info(
-            '{label} transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
-            ['label' => self::LABEL, 'command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
+            'Stdio client transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
+            ['command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
         );
 
         try {
@@ -229,10 +228,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
             try {
                 $exitCode = $process->join($cancellation);
             } catch (CancelledException) {
-                $this->logger->debug(
-                    '{label} transport stopped watching for the subprocess exit.',
-                    ['label' => self::LABEL],
-                );
+                $this->logger->debug('Stdio client transport stopped watching for the subprocess exit.');
 
                 return;
             } catch (ProcessException) {
@@ -240,18 +236,15 @@ final class StdioClientTransport implements SupervisableTransportInterface
             }
 
             $this->logger->warning(
-                '{label} transport subprocess exited unexpectedly (code {exitCode}).',
-                ['label' => self::LABEL, 'exitCode' => $exitCode ?? 'unknown'],
+                'Stdio client transport subprocess exited unexpectedly (code {exitCode}).',
+                ['exitCode' => $exitCode ?? 'unknown'],
             );
 
             foreach ($this->exitListeners as $listener) {
                 try {
                     $listener($exitCode);
                 } catch (\Throwable $e) {
-                    $this->logger->warning(
-                        '{label} transport exit listener threw.',
-                        ['label' => self::LABEL, 'exception' => $e],
-                    );
+                    $this->logger->warning('Stdio client transport exit listener threw.', ['exception' => $e]);
                 }
             }
         })->ignore();

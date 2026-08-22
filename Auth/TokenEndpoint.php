@@ -40,17 +40,18 @@ use Nexus\Mcp\Core\SafeDisplay;
  */
 final readonly class TokenEndpoint
 {
-    private const string LABEL = 'Token response';
     private const int MAX_LIFETIME_SECONDS = 315_360_000;
 
     private JsonHttpExchange $exchange;
+    private MetadataReader $reader;
 
     public function __construct(
         DelegateHttpClient $client,
         float $timeout = 10.0,
         private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
     ) {
-        $this->exchange = new JsonHttpExchange($client, $timeout);
+        $this->exchange = new JsonHttpExchange($client, 'token endpoint', $timeout);
+        $this->reader = new MetadataReader('Token response');
     }
 
     public function refresh(
@@ -129,7 +130,7 @@ final readonly class TokenEndpoint
         [$status, $payload] = $this->exchange->send($request, $cancellation);
 
         try {
-            $data = JsonHttpExchange::decode($payload, 'token endpoint');
+            $data = $this->exchange->decode($payload);
         } catch (MalformedAuthorizationResponseException $e) {
             if (HttpStatus::Ok->value === $status) {
                 throw $e;
@@ -142,8 +143,8 @@ final readonly class TokenEndpoint
         }
 
         if ($status >= HttpStatus::BadRequest->value) {
-            $error = MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_request';
-            $description = MetadataReader::readErrorField($data, 'error_description', self::LABEL);
+            $error = $this->reader->readErrorField($data, 'error') ?? 'invalid_request';
+            $description = $this->reader->readErrorField($data, 'error_description');
 
             throw match (true) {
                 'invalid_client' === $error => new ClientRegistrationRejectedException($description),
@@ -161,7 +162,7 @@ final readonly class TokenEndpoint
      */
     private function readToken(array $data, string $issuer, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
     {
-        $type = MetadataReader::readRequiredString($data, 'token_type', self::LABEL);
+        $type = $this->reader->readRequiredString($data, 'token_type');
 
         if (strcasecmp($type, WwwAuthenticateChallenge::BEARER_SCHEME) !== 0) {
             throw $this->buildTokenFailure(
@@ -170,14 +171,14 @@ final readonly class TokenEndpoint
             );
         }
 
-        $lifetime = MetadataReader::readInt($data, 'expires_in', self::LABEL);
-        $scope = MetadataReader::readString($data, 'scope', self::LABEL);
+        $lifetime = $this->reader->readInt($data, 'expires_in');
+        $scope = $this->reader->readString($data, 'scope');
 
         return new AccessToken(
-            MetadataReader::readRequiredString($data, 'access_token', self::LABEL),
+            $this->reader->readRequiredString($data, 'access_token'),
             $issuer,
             null === $lifetime ? null : time() + min($lifetime, self::MAX_LIFETIME_SECONDS),
-            MetadataReader::readString($data, 'refresh_token', self::LABEL) ?? $priorRefreshToken,
+            $this->reader->readString($data, 'refresh_token') ?? $priorRefreshToken,
             null === $scope ? $requestedScopes->values : ScopeSet::parse($scope)->values,
         );
     }

@@ -34,9 +34,8 @@ use Nexus\Mcp\Core\SafeDisplay;
  */
 final readonly class ClientRegistrar
 {
-    private const string LABEL = 'Client registration response';
-
     private JsonHttpExchange $exchange;
+    private MetadataReader $reader;
 
     public function __construct(
         DelegateHttpClient $client,
@@ -44,7 +43,8 @@ final readonly class ClientRegistrar
         float $timeout = 10.0,
         private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
     ) {
-        $this->exchange = new JsonHttpExchange($client, $timeout);
+        $this->exchange = new JsonHttpExchange($client, 'registration endpoint', $timeout);
+        $this->reader = new MetadataReader('Client registration response');
     }
 
     public function resolve(
@@ -121,19 +121,19 @@ final readonly class ClientRegistrar
         $request->setHeader('Content-Type', 'application/json');
 
         [$status, $payload] = $this->exchange->send($request, $cancellation);
-        $data = JsonHttpExchange::decode($payload, 'registration endpoint');
+        $data = $this->exchange->decode($payload);
 
         if ($status >= 400) {
             throw $this->buildRegistrationFailure(
-                MetadataReader::readErrorField($data, 'error', self::LABEL) ?? 'invalid_client_metadata',
-                MetadataReader::readErrorField($data, 'error_description', self::LABEL),
+                $this->reader->readErrorField($data, 'error') ?? 'invalid_client_metadata',
+                $this->reader->readErrorField($data, 'error_description'),
             );
         }
 
-        $secret = MetadataReader::readString($data, 'client_secret', self::LABEL);
+        $secret = $this->reader->readString($data, 'client_secret');
 
         return new ClientRegistration(
-            MetadataReader::readRequiredString($data, 'client_id', self::LABEL),
+            $this->reader->readRequiredString($data, 'client_id'),
             $metadata->issuer,
             $secret,
             $this->resolveAuthMethod($data, $secret),
@@ -154,7 +154,7 @@ final readonly class ClientRegistrar
      */
     private function resolveAuthMethod(array $data, ?string $secret): TokenEndpointAuthMethod
     {
-        $declared = MetadataReader::readString($data, 'token_endpoint_auth_method', self::LABEL);
+        $declared = $this->reader->readString($data, 'token_endpoint_auth_method');
 
         if (null === $declared) {
             return null === $secret ? TokenEndpointAuthMethod::None : TokenEndpointAuthMethod::ClientSecretBasic;

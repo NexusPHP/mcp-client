@@ -26,10 +26,9 @@ use Nexus\Mcp\Core\Exception\RuntimeException;
  */
 final class AuthorizationResponse
 {
-    private const string LABEL = 'Authorization response';
-
     public static function readCode(AuthorizationRedirect $redirect, AuthorizationCallback $callback): string
     {
+        $reader = new MetadataReader('Authorization response');
         $parameters = $callback->parameters;
 
         if (! hash_equals($redirect->state, $parameters['state'] ?? '')) {
@@ -38,10 +37,10 @@ final class AuthorizationResponse
 
         self::validateIssuer($redirect, $parameters);
 
-        $error = MetadataReader::readErrorField($parameters, 'error', self::LABEL);
+        $error = $reader->readErrorField($parameters, 'error');
 
         if (null !== $error) {
-            $description = MetadataReader::readErrorField($parameters, 'error_description', self::LABEL);
+            $description = $reader->readErrorField($parameters, 'error_description');
 
             throw new RuntimeException(\sprintf(
                 'The authorization server denied the request with "%s"%s',

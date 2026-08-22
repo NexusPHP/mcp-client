@@ -42,8 +42,6 @@ final class SupervisedTransport implements ReconnectingTransportInterface
      */
     public const float DEFAULT_RESTART_WINDOW = 60.0;
 
-    private const string LABEL = 'Supervised client';
-
     private readonly TransportEvents $events;
 
     /**
@@ -98,7 +96,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
 
         $this->clock = $clock ?? static fn(): float => microtime(true);
-        $this->events = TransportEvents::create($this->logger, self::LABEL);
+        $this->events = TransportEvents::create($this->logger, 'Supervised client');
     }
 
     #[\Override]
@@ -261,8 +259,8 @@ final class SupervisedTransport implements ReconnectingTransportInterface
 
         if ($this->restartsInWindow > $this->maxRestarts) {
             $this->logger->error(
-                '{label} transport exhausted its restart budget of {budget}.',
-                ['label' => self::LABEL, 'budget' => $this->maxRestarts],
+                'Supervised client transport exhausted its restart budget of {budget}.',
+                ['budget' => $this->maxRestarts],
             );
 
             try {
@@ -275,8 +273,8 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         }
 
         $this->logger->warning(
-            '{label} transport respawning the peer after an unexpected exit (code {exitCode}), attempt {attempt} of {budget}.',
-            ['label' => self::LABEL, 'exitCode' => $exitCode ?? 'unknown', 'attempt' => $this->restartsInWindow, 'budget' => $this->maxRestarts],
+            'Supervised client transport respawning the peer after an unexpected exit (code {exitCode}), attempt {attempt} of {budget}.',
+            ['exitCode' => $exitCode ?? 'unknown', 'attempt' => $this->restartsInWindow, 'budget' => $this->maxRestarts],
         );
 
         $this->respawning = true;

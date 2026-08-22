@@ -31,8 +31,12 @@ final readonly class JsonHttpExchange
 {
     public const int MAX_RESPONSE_BYTES = 65_536;
 
+    /**
+     * @param non-empty-string $label What the endpoint is called in a malformed-response diagnostic
+     */
     public function __construct(
         private DelegateHttpClient $client,
+        private string $label,
         private float $timeout = 10.0,
     ) {
     }
@@ -66,13 +70,13 @@ final readonly class JsonHttpExchange
     /**
      * @return array<string, mixed>
      */
-    public static function decode(string $payload, string $label): array
+    public function decode(string $payload): array
     {
         try {
             $data = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
             Assert::that($data)->isMap('The payload is not a JSON object.');
         } catch (\InvalidArgumentException|\JsonException $e) {
-            throw new MalformedAuthorizationResponseException($label, $e);
+            throw new MalformedAuthorizationResponseException($this->label, $e);
         }
 
         return $data;

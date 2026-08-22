@@ -58,7 +58,6 @@ use function Amp\async;
 final class StreamableHttpClientTransport implements AbortableTransportInterface, ParameterHeaderMirroringInterface
 {
     public const int DEFAULT_MAX_RESPONSE_BYTES = SseFrameParser::DEFAULT_MAX_FRAME_BYTES;
-    private const string LABEL = 'Streamable HTTP client';
 
     private readonly DelegateHttpClient $client;
     private readonly TransportEvents $events;
@@ -109,18 +108,18 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         private readonly float $readTimeout = 30.0,
         private readonly int $maxResponseBytes = self::DEFAULT_MAX_RESPONSE_BYTES,
     ) {
-        Assert::that($endpoint)->isNonEmptyString(\sprintf('%s endpoint must be a non-empty string.', self::LABEL));
+        Assert::that($endpoint)->isNonEmptyString('Streamable HTTP client endpoint must be a non-empty string.');
 
         if ($readTimeout <= 0.0) {
-            throw new \InvalidArgumentException(\sprintf('%s read timeout must be positive, %s given.', self::LABEL, $readTimeout));
+            throw new \InvalidArgumentException(\sprintf('Streamable HTTP client read timeout must be positive, %s given.', $readTimeout));
         }
 
         Assert::that($maxResponseBytes)->isPositiveInt(
-            \sprintf('%s maximum response size must be a positive integer, {value} given.', self::LABEL),
+            'Streamable HTTP client maximum response size must be a positive integer, {value} given.',
         );
 
         $this->client = $client ?? HttpClientBuilder::buildDefault();
-        $this->events = TransportEvents::create($logger, self::LABEL);
+        $this->events = TransportEvents::create($logger, 'Streamable HTTP client');
         $this->exchanges = new PendingCoroutines();
         $this->standardHeaders = new StandardHeaders();
     }
@@ -136,7 +135,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         $this->state = TransportState::Running;
         $this->lifetime = new DeferredCancellation();
-        $this->logger->info('{label} transport started. Endpoint: {endpoint}.', ['label' => self::LABEL, 'endpoint' => $this->endpoint]);
+        $this->logger->info('Streamable HTTP client transport started. Endpoint: {endpoint}.', ['endpoint' => $this->endpoint]);
     }
 
     #[\Override]
@@ -149,7 +148,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         };
 
         if ($message instanceof JsonRpcResponse) {
-            $this->logger->warning('{label} transport dropped an outbound response, which a client must not send.', ['label' => self::LABEL]);
+            $this->logger->warning('Streamable HTTP client transport dropped an outbound response, which a client must not send.');
 
             return;
         }
@@ -227,7 +226,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                 $this->lifetime?->cancel();
                 $this->exchanges->flushPending();
                 $this->events->emitClose();
-                $this->logger->info('{label} transport closed.', ['label' => self::LABEL]);
+                $this->logger->info('Streamable HTTP client transport closed.');
             } finally {
                 $completion->complete();
             }
@@ -317,7 +316,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                 && ! \array_key_exists('method', $decoded)
                 && (\array_key_exists('result', $decoded) || \array_key_exists('error', $decoded))
             ) {
-                Assert::that($decoded)->isMap(\sprintf('%s received a response envelope that is not a string-keyed object.', self::LABEL));
+                Assert::that($decoded)->isMap('Streamable HTTP client received a response envelope that is not a string-keyed object.');
                 $this->events->emitMessage($decoded, new ReceiveContext());
 
                 return;
@@ -399,7 +398,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     private function decode(string $payload): array
     {
         $envelope = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
-        Assert::that($envelope)->isMap(\sprintf('%s received a payload that is not a JSON-RPC envelope.', self::LABEL));
+        Assert::that($envelope)->isMap('Streamable HTTP client received a payload that is not a JSON-RPC envelope.');
 
         return $envelope;
     }
