@@ -152,6 +152,8 @@ final class Client
      */
     private array $listeners = [];
 
+    private readonly ParameterHeaders $parameterHeaders;
+
     /**
      * @param \Closure(): (int|non-empty-string)              $requestIdFactory
      * @param \Closure(): (int|non-empty-string)              $progressTokenFactory
@@ -176,6 +178,7 @@ final class Client
         private readonly DiscoveredServerCapabilities $serverCapabilities = new DiscoveredServerCapabilities(),
         private readonly ?\Closure $metaExtrasFactory = null,
     ) {
+        $this->parameterHeaders = new ParameterHeaders();
     }
 
     /**
@@ -1023,7 +1026,7 @@ final class Client
      */
     private function mirrorParameterHeaders(string $name, ?array $arguments): array
     {
-        return ParameterHeaders::build($this->toolHeaderBindings[$name] ?? [], $arguments ?? []);
+        return $this->parameterHeaders->build($this->toolHeaderBindings[$name] ?? [], $arguments ?? []);
     }
 
     /**

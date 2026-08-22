@@ -64,6 +64,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     private readonly DelegateHttpClient $client;
     private readonly TransportEvents $events;
     private readonly PendingCoroutines $exchanges;
+    private readonly StandardHeaders $standardHeaders;
     private TransportState $state = TransportState::Idle;
 
     /**
@@ -122,6 +123,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         $this->client = $client ?? HttpClientBuilder::buildDefault();
         $this->events = TransportEvents::create($logger, self::LABEL);
         $this->exchanges = new PendingCoroutines();
+        $this->standardHeaders = new StandardHeaders();
     }
 
     #[\Override]
@@ -357,7 +359,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             'Content-Type' => 'application/json',
             'Accept' => self::ACCEPT,
             ...$headers,
-            ...StandardHeaders::build($message->toArray()),
+            ...$this->standardHeaders->build($message->toArray()),
         ]);
 
         $request->setTransferTimeout(0.0);
