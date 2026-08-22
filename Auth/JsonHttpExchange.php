@@ -18,7 +18,6 @@ use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
-use Nexus\Assert\ExpectationFailedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
@@ -72,7 +71,7 @@ final readonly class JsonHttpExchange
         try {
             $data = json_decode($payload, associative: true, flags: \JSON_THROW_ON_ERROR);
             Assert::that($data)->isMap('The payload is not a JSON object.');
-        } catch (ExpectationFailedException|\JsonException $e) {
+        } catch (\InvalidArgumentException|\JsonException $e) {
             throw new MalformedAuthorizationResponseException($label, $e);
         }
 
