@@ -32,6 +32,8 @@
         "psr/log": "^3.0",
         "revolt/event-loop": "^1.0.8"
     },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "autoload": {
         "psr-4": {
             "Nexus\\Mcp\\Client\\": ""
