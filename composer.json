@@ -32,10 +32,6 @@
         "psr/log": "^3.0",
         "revolt/event-loop": "^1.0.8"
     },
-    "conflict": {
-        "amphp/pipeline": "<1.2.1",
-        "league/uri-interfaces": "<7.6"
-    },
     "autoload": {
         "psr-4": {
             "Nexus\\Mcp\\Client\\": ""
