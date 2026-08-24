@@ -32,6 +32,9 @@
         "psr/log": "^3.0",
         "revolt/event-loop": "^1.0.8"
     },
+    "suggest": {
+        "ext-sodium": "Required with EncryptedFileTokenStore."
+    },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "autoload": {
