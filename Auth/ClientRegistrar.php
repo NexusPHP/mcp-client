@@ -79,7 +79,7 @@ final readonly class ClientRegistrar
 
         $stored = $this->store->read($metadata->issuer);
 
-        if (null !== $stored) {
+        if (null !== $stored && ! $this->hasExpiredSecret($stored)) {
             return $stored;
         }
 
@@ -131,13 +131,26 @@ final readonly class ClientRegistrar
         }
 
         $secret = $this->reader->readString($data, 'client_secret');
+        $expiresAt = $this->reader->readInt($data, 'client_secret_expires_at');
+        Assert::that($expiresAt)->nullOr()->isNaturalInt('Client registration response "client_secret_expires_at" must be a non-negative integer, {value} given.');
 
         return new ClientRegistration(
             $this->reader->readRequiredString($data, 'client_id'),
             $metadata->issuer,
             $secret,
             $this->resolveAuthMethod($data, $secret),
+            $expiresAt,
         );
+    }
+
+    /**
+     * RFC 7591 §3.2.1: `client_secret_expires_at` is `0` when the secret never expires.
+     */
+    private function hasExpiredSecret(ClientRegistration $registration): bool
+    {
+        $expiry = $registration->clientSecretExpiresAt ?? 0;
+
+        return null !== $registration->clientSecret && 0 !== $expiry && $expiry <= time();
     }
 
     private function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
