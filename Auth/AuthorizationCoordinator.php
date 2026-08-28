@@ -20,6 +20,8 @@ use Amp\Http\Client\DelegateHttpClient;
 use Amp\Sync\LocalSemaphore;
 use Amp\Sync\Lock;
 use Amp\Sync\Semaphore;
+use Nexus\Clock\Clock;
+use Nexus\Clock\SystemClock;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
@@ -64,6 +66,7 @@ final class AuthorizationCoordinator
         private readonly AuthorizationOptions $options,
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly Semaphore $lock = new LocalSemaphore(1),
+        private readonly Clock $clock = new SystemClock(),
     ) {
         $this->granted = new ScopeSet();
         $this->reentrant = new FiberLocal(static fn(): bool => false);
@@ -379,6 +382,6 @@ final class AuthorizationCoordinator
 
     private function hasExpired(AccessToken $token): bool
     {
-        return null !== $token->expiresAt && $token->expiresAt <= time() + self::EXPIRY_LEEWAY_SECONDS;
+        return null !== $token->expiresAt && $token->expiresAt <= $this->clock->now()->getTimestamp() + self::EXPIRY_LEEWAY_SECONDS;
     }
 }

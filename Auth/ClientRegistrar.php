@@ -17,6 +17,8 @@ use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
+use Nexus\Clock\Clock;
+use Nexus\Clock\SystemClock;
 use Nexus\Mcp\Client\Exception\AuthorizationServerMismatchException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRequiredException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
@@ -42,6 +44,7 @@ final readonly class ClientRegistrar
         private ClientRegistrationStoreInterface $store,
         float $timeout = 10.0,
         private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
+        private Clock $clock = new SystemClock(),
     ) {
         $this->exchange = new JsonHttpExchange($client, 'registration endpoint', $timeout);
         $this->reader = new MetadataReader('Client registration response');
@@ -150,7 +153,7 @@ final readonly class ClientRegistrar
     {
         $expiry = $registration->clientSecretExpiresAt ?? 0;
 
-        return null !== $registration->clientSecret && 0 !== $expiry && $expiry <= time();
+        return null !== $registration->clientSecret && 0 !== $expiry && $expiry <= $this->clock->now()->getTimestamp();
     }
 
     private function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod

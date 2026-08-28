@@ -17,6 +17,8 @@ use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Assert\Assert;
+use Nexus\Clock\Clock;
+use Nexus\Clock\SystemClock;
 use Nexus\Mcp\Client\Exception\AuthorizationGrantRejectedException;
 use Nexus\Mcp\Client\Exception\ClientRegistrationRejectedException;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
@@ -49,6 +51,7 @@ final readonly class TokenEndpoint
         DelegateHttpClient $client,
         float $timeout = 10.0,
         private SecureEndpoint $secureEndpoint = new SecureEndpoint(),
+        private Clock $clock = new SystemClock(),
     ) {
         $this->exchange = new JsonHttpExchange($client, 'token endpoint', $timeout);
         $this->reader = new MetadataReader('Token response');
@@ -177,7 +180,7 @@ final readonly class TokenEndpoint
         return new AccessToken(
             $this->reader->readRequiredString($data, 'access_token'),
             $issuer,
-            null === $lifetime ? null : time() + min($lifetime, self::MAX_LIFETIME_SECONDS),
+            null === $lifetime ? null : $this->clock->now()->getTimestamp() + min($lifetime, self::MAX_LIFETIME_SECONDS),
             $this->reader->readString($data, 'refresh_token') ?? $priorRefreshToken,
             null === $scope ? $requestedScopes->values : ScopeSet::parse($scope)->values,
         );

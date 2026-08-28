@@ -25,6 +25,8 @@ use Amp\Http\Client\Response;
 use Amp\Sync\LocalSemaphore;
 use Amp\Sync\Semaphore;
 use Nexus\Assert\Assert;
+use Nexus\Clock\Clock;
+use Nexus\Clock\SystemClock;
 use Nexus\Mcp\Client\Exception\InsufficientScopeException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Auth\ResourceIdentifier;
@@ -58,6 +60,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
      * @param null|ClientRegistrationStoreInterface $registrations     Defaults to a store that lives only as long as the process
      * @param null|GrantStrategyInterface           $grantStrategy     An unattended grant run in place of the authorization-code round trip
      * @param null|Semaphore                        $lock              Serialises grants and renewals, defaulting to one that spans this process only
+     * @param Clock                                 $clock             Reads the time expiries are stamped and checked against
      */
     public function __construct(
         string $resource,
@@ -69,6 +72,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         private readonly LoggerInterface $logger = new NullLogger(),
         ?GrantStrategyInterface $grantStrategy = null,
         ?Semaphore $lock = null,
+        Clock $clock = new SystemClock(),
     ) {
         if (null !== $userAuthorization) {
             Assert::that($grantStrategy)->isNull('A user authorization and a grant strategy were both given, and the client can run only one.');
@@ -93,14 +97,16 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                 $registrations ?? new InMemoryClientRegistrationStore(),
                 $this->options->timeout,
                 $secureEndpoint,
+                $clock,
             ),
-            new TokenEndpoint($this->sealedClient, $this->options->timeout, $secureEndpoint),
+            new TokenEndpoint($this->sealedClient, $this->options->timeout, $secureEndpoint, $clock),
             $this->sealedClient,
             $strategy,
             $tokens ?? new InMemoryTokenStore(),
             $this->options,
             $this->logger,
             $lock ?? new LocalSemaphore(1),
+            $clock,
         );
     }
 

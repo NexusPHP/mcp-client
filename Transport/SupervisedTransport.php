@@ -14,6 +14,8 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Transport;
 
 use Nexus\Assert\Assert;
+use Nexus\Clock\HighResolutionStopwatch;
+use Nexus\Clock\Stopwatch;
 use Nexus\Mcp\Core\Exception\SupervisionExhaustedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyClosedException;
 use Nexus\Mcp\Core\Exception\TransportAlreadyStartedException;
@@ -43,19 +45,13 @@ final class SupervisedTransport implements ReconnectingTransportInterface
     public const float DEFAULT_RESTART_WINDOW = 60.0;
 
     private readonly TransportEvents $events;
-
-    /**
-     * @var \Closure(): float
-     */
-    private readonly \Closure $clock;
-
     private TransportState $state = TransportState::Idle;
     private ?SupervisableTransportInterface $inner = null;
     private bool $connectionEnded = true;
     private int $restartsInWindow = 0;
 
     /**
-     * A reading from `$clock`, or zero until the first respawn.
+     * A reading from `$stopwatch`, or zero until the first respawn.
      */
     private float $windowStartedAt = 0.0;
 
@@ -81,7 +77,6 @@ final class SupervisedTransport implements ReconnectingTransportInterface
      * @param int                                        $maxRestarts   Respawns allowed within one window before giving up.
      * @param float                                      $restartDelay  Seconds to wait before each respawn.
      * @param float                                      $restartWindow Seconds the restart count is measured over.
-     * @param null|\Closure(): float                     $clock         Reads the current time in **seconds**. A source in other units silently makes the budget unspendable.
      */
     public function __construct(
         private readonly \Closure $factory,
@@ -89,13 +84,12 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         private readonly float $restartDelay = 0.1,
         private readonly LoggerInterface $logger = new NullLogger(),
         private readonly float $restartWindow = self::DEFAULT_RESTART_WINDOW,
-        ?\Closure $clock = null,
+        private readonly Stopwatch $stopwatch = new HighResolutionStopwatch(),
     ) {
         Assert::that($maxRestarts)->isPositiveInt('maxRestarts must be a positive integer, {value} given.');
         Assert::that($restartDelay)->isBetween(0.0, \PHP_FLOAT_MAX, message: 'restartDelay must not be negative, {value} given.');
         Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
 
-        $this->clock = $clock ?? static fn(): float => microtime(true);
         $this->events = TransportEvents::create($this->logger, 'Supervised client');
     }
 
@@ -248,7 +242,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
             return;
         }
 
-        $now = ($this->clock)();
+        $now = $this->stopwatch->read();
 
         if (0 === $this->restartsInWindow || $this->restartWindow < $now - $this->windowStartedAt) {
             $this->restartsInWindow = 0;
