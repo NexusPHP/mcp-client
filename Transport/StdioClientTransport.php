@@ -80,7 +80,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
         private readonly SubprocessLauncherInterface $launcher = new AmpSubprocessLauncher(),
     ) {
         Assert::that($command)->isList('Stdio client command must be a list, {type} given.');
-        Assert::that(\count($command))->isPositiveInt('Stdio client command must not be empty.');
+        Assert::that($command)->hasMinCount(1, 'Stdio client command must not be empty.');
 
         $this->duplex = new LineDuplex(
             hostTransport: self::class,

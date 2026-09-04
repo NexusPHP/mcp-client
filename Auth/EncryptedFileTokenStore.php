@@ -35,9 +35,9 @@ final readonly class EncryptedFileTokenStore implements TokenStoreInterface
         SuggestedDependencyGuard::verifyExtension(self::class, 'sodium');
 
         Assert::that($path)->isNonEmptyString('Encrypted token store path must be a non-empty string.');
-        Assert::that(\strlen($key))->isIdentical(
+        Assert::that($key)->hasLength(
             \SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
-            'Encrypted token store key must be exactly 32 bytes long, {value} given.',
+            'Encrypted token store key must be exactly 32 bytes long, {actual} given.',
         );
     }
 

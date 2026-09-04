@@ -87,8 +87,8 @@ final class SupervisedTransport implements ReconnectingTransportInterface
         private readonly Stopwatch $stopwatch = new HighResolutionStopwatch(),
     ) {
         Assert::that($maxRestarts)->isPositiveInt('maxRestarts must be a positive integer, {value} given.');
-        Assert::that($restartDelay)->isBetween(0.0, \PHP_FLOAT_MAX, message: 'restartDelay must not be negative, {value} given.');
-        Assert::that($restartWindow)->isBetween(\PHP_FLOAT_EPSILON, \PHP_FLOAT_MAX, message: 'restartWindow must be positive, {value} given.');
+        Assert::that($restartDelay)->isGreaterThanOrEqual(0.0, 'restartDelay must not be negative, {value} given.');
+        Assert::that($restartWindow)->isGreaterThan(0.0, 'restartWindow must be positive, {value} given.');
 
         $this->events = TransportEvents::create($this->logger, 'Supervised client');
     }
