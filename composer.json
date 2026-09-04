@@ -3,6 +3,11 @@
     "description": "PHP SDK for the MCP specification - client component.",
     "license": "MIT",
     "type": "library",
+    "keywords": [
+        "mcp",
+        "model context protocol",
+        "mcp-sdk"
+    ],
     "authors": [
         {
             "name": "John Paul E. Balandan, CPA",
@@ -10,9 +15,9 @@
         }
     ],
     "support": {
-        "docs": "https://nexusphp.github.io/mcp/",
         "issues": "https://github.com/NexusPHP/mcp/issues",
-        "source": "https://github.com/NexusPHP/mcp.git"
+        "source": "https://github.com/NexusPHP/mcp.git",
+        "docs": "https://nexusphp.github.io/mcp/"
     },
     "funding": [
         {
