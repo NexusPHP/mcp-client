@@ -1,0 +1,24 @@
+name: Carson
+
+on:
+  issues:
+    types:
+      - opened
+  pull_request_target:
+    types:
+      - opened
+
+permissions: {}
+
+jobs:
+  carson:
+    name: Close and point to NexusPHP/mcp
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Run Carson
+        uses: NexusPHP/carson@3dd49fd64448ae56fb93aabe8e8082e2e5149df5 # v1.1.0
+        with:
+          app_id: ${{ secrets.CARSON_APP_ID }}
+          private_key: ${{ secrets.CARSON_PRIVATE_KEY }}

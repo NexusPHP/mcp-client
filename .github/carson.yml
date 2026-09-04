@@ -1,0 +1,12 @@
+version: 1
+
+subscribers:
+  - read-only
+  - lock-old-issues
+
+settings:
+  read-only:
+    upstream: NexusPHP/mcp
+    message: "Thank you. This repository is a read-only subtree split of {{upstream}} and is not monitored. Please open this {{type}} there instead, where it will be seen."
+  lock-old-issues:
+    reason: off-topic
