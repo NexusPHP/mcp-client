@@ -181,7 +181,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                 try {
                     $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
                 } catch (\Throwable) {
-                    // A listener that throws must not cost this exchange its release, and the error channel just failed anyway.
+                    // A listener that throws must not cost this exchange its release, and the error channel itself has failed.
                 }
             }
 
