@@ -208,7 +208,7 @@ final class AuthorizationCoordinator
 
         $context = new GrantContext(
             $discovered,
-            $this->resource,
+            $discovered->metadata->resource,
             $this->selectScopes($challenge, $discovered, $additionalScopes),
             $this->options,
             $this->httpClient,
@@ -304,7 +304,7 @@ final class AuthorizationCoordinator
                 $server,
                 $this->registrar->resolve($server, $this->options, $cancellation),
                 $token,
-                $this->resource,
+                $discovered->metadata->resource,
                 $cancellation,
             );
         } catch (AuthorizationGrantRejectedException|ClientRegistrationRejectedException|MalformedAuthorizationResponseException $e) {
