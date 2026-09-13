@@ -4,9 +4,11 @@ on:
   issues:
     types:
       - opened
+      - reopened
   pull_request_target:
     types:
       - opened
+      - reopened
 
 permissions: {}
 
@@ -18,7 +20,7 @@ jobs:
 
     steps:
       - name: Run Carson
-        uses: NexusPHP/carson@80ba8380498b061f22de749c7609f265c8d66120 # v1.3.0
+        uses: NexusPHP/carson@44db1c01ff55b596cabec251fec6307dabd0852e # v1.4.3
         with:
           app_id: ${{ secrets.CARSON_APP_ID }}
           private_key: ${{ secrets.CARSON_PRIVATE_KEY }}
