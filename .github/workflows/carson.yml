@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Run Carson
-        uses: NexusPHP/carson@44db1c01ff55b596cabec251fec6307dabd0852e # v1.4.3
+        uses: NexusPHP/carson@cb35604ab330c2e44dba673fcef712c78e75f858 # v1.7.0
         with:
           app_id: ${{ secrets.CARSON_APP_ID }}
           private_key: ${{ secrets.CARSON_PRIVATE_KEY }}
