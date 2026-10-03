@@ -37,13 +37,19 @@ final class StdioClientTransport implements SupervisableTransportInterface
 {
     private const array INHERITED_ENV_NAMES = [
         'APPDATA',
+        'COMSPEC',
         'HOME',
         'HOMEDRIVE',
         'HOMEPATH',
         'LOCALAPPDATA',
         'LOGNAME',
         'PATH',
+        'PATHEXT',
         'PROCESSOR_ARCHITECTURE',
+        'PROGRAMDATA',
+        'PROGRAMFILES',
+        'PROGRAMFILES(X86)',
+        'PROGRAMW6432',
         'SHELL',
         'SYSTEMDRIVE',
         'SYSTEMROOT',
@@ -52,6 +58,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
         'USER',
         'USERNAME',
         'USERPROFILE',
+        'WINDIR',
     ];
 
     private readonly LineDuplex $duplex;
