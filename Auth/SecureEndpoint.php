@@ -134,7 +134,9 @@ final readonly class SecureEndpoint
     {
         $host = trim($host, '[]');
 
+        // RFC 6761 §6.3: every name under `.localhost` is loopback.
         return 'localhost' === $host
+            || str_ends_with($host, '.localhost')
             || '::1' === $host
             || preg_match('/^127(?:\.\d{1,3}){3}$/', $host) === 1;
     }
