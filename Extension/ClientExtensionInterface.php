@@ -17,14 +17,14 @@ use Nexus\Mcp\Client\ClientContext;
 use Nexus\Mcp\Core\Extension\ExtensionInterface;
 
 /**
- * An extension the client participates in.
+ * An extension that the client participates in.
  *
  * @extends ExtensionInterface<ClientContext>
  */
 interface ClientExtensionInterface extends ExtensionInterface
 {
     /**
-     * The client-to-server request methods this extension invokes.
+     * The client-to-server request methods invoked by this extension.
      *
      * @return list<non-empty-string>
      */

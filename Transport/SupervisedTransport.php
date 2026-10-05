@@ -40,7 +40,7 @@ use Revolt\EventLoop;
 final class SupervisedTransport implements ReconnectingTransportInterface
 {
     /**
-     * Seconds the restart count is measured over.
+     * Seconds over which the restart count is measured.
      */
     public const float DEFAULT_RESTART_WINDOW = 60.0;
 
@@ -76,7 +76,7 @@ final class SupervisedTransport implements ReconnectingTransportInterface
      * @param \Closure(): SupervisableTransportInterface $factory       Mints one connection, called once per spawn.
      * @param int                                        $maxRestarts   Respawns allowed within one window before giving up.
      * @param float                                      $restartDelay  Seconds to wait before each respawn.
-     * @param float                                      $restartWindow Seconds the restart count is measured over.
+     * @param float                                      $restartWindow Seconds over which the restart count is measured.
      */
     public function __construct(
         private readonly \Closure $factory,

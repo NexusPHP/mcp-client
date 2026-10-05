@@ -45,7 +45,7 @@ final class RequestDeadline
     }
 
     /**
-     * Seconds the deadline that fired was measuring, or `0.0` while none has.
+     * Seconds measured by the deadline that fired, or `0.0` while none has.
      */
     public function readElapsed(): float
     {

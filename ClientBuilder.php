@@ -257,7 +257,7 @@ final class ClientBuilder
 
     /**
      * Sets the factory called once per outbound request for the extra `_meta` keys it carries, such as the W3C
-     * `traceparent`. A lifecycle key it returns is ignored.
+     * `traceparent`. A returned lifecycle key is ignored.
      *
      * @param \Closure(): array<non-empty-string, mixed> $factory
      */

@@ -53,7 +53,7 @@ final readonly class GrantContext
 
     /**
      * @param array<string, string> $parameters      Full form body of the grant, `grant_type` included
-     * @param null|ScopeSet         $requestedScopes Scopes the token carries when the response names none, defaulting to the context's
+     * @param null|ScopeSet         $requestedScopes Scopes carried by the token when the response names none, defaulting to the context's
      */
     public function requestToken(
         ClientRegistration $registration,

@@ -21,7 +21,7 @@ use Amp\Cancellation;
 interface GrantStrategyInterface
 {
     /**
-     * Obtains a fresh access token for the resource the context describes.
+     * Obtains a fresh access token for the resource described by the context.
      */
     public function grant(GrantContext $context, Cancellation $cancellation): AccessToken;
 

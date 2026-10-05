@@ -24,7 +24,7 @@ use Nexus\Mcp\Core\SafeDisplay;
 final class InsufficientScopeException extends \RuntimeException implements McpExceptionInterface
 {
     /**
-     * @param list<non-empty-string> $required Scopes the challenge named that this client can use
+     * @param list<non-empty-string> $required Scopes named by the challenge that this client can use
      * @param bool                   $named    Whether the challenge named a scope at all
      */
     public function __construct(

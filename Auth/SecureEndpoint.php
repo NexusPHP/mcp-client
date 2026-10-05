@@ -18,7 +18,7 @@ use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Transport-security checks for the URLs an MCP client is steered at.
+ * Transport-security checks for the URLs that an MCP client is steered at.
  *
  * @internal
  *
@@ -35,7 +35,7 @@ final readonly class SecureEndpoint
     }
 
     /**
-     * Verifies the redirect URI, the one URL the spec lets address a loopback listener over plain
+     * Verifies the redirect URI, the one URL that the spec lets address a loopback listener over plain
      * HTTP unconditionally, so the loopback opt-in plays no part.
      */
     public function verifyRedirectUri(string $url): void

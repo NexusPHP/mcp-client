@@ -820,7 +820,7 @@ final class Client
             try {
                 return $this->exchange($request, $response, $context, $deadline);
             } catch (RemoteCallFailedException $e) {
-                // SEP-2575: the client SHOULD retry once with a version the rejection named, and never retry the retry.
+                // SEP-2575: the client SHOULD retry once with a version named by the rejection, and never retry the retry.
                 $retry = $this->renegotiateProtocolVersion($request, $e);
 
                 if (null === $retry) {
@@ -930,7 +930,7 @@ final class Client
     }
 
     /**
-     * The first version the peer named that this SDK also speaks.
+     * The first version named by the peer that this SDK also speaks.
      *
      * @param list<string> $supported
      */

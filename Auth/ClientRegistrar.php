@@ -28,7 +28,7 @@ use Nexus\Mcp\Core\Exception\RuntimeException;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Resolver for the `client_id` an MCP client presents to an authorization server.
+ * Resolver for the `client_id` presented by an MCP client to an authorization server.
  *
  * @internal
  *

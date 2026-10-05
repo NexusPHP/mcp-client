@@ -18,7 +18,7 @@ use Nexus\Mcp\Core\Auth\MetadataReader;
 use Nexus\Mcp\Core\Exception\RuntimeException;
 
 /**
- * Validated read of the authorization code an authorization response carries.
+ * Validated read of the authorization code carried by an authorization response.
  *
  * @internal
  *

@@ -16,7 +16,7 @@ namespace Nexus\Mcp\Client\Subscription;
 use Nexus\Mcp\Core\Schema\RequestId;
 
 /**
- * The `subscriptions/listen` streams the client currently holds open, keyed by subscription id.
+ * The `subscriptions/listen` streams currently held open by the client, keyed by subscription id.
  *
  * @internal
  */

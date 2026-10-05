@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * Builder for the well-known metadata URLs an MCP client probes.
+ * Builder for the well-known metadata URLs probed by an MCP client.
  *
  * @internal
  *

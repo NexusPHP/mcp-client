@@ -23,7 +23,7 @@ use Nexus\Mcp\Core\Validation\SuggestedDependencyGuard;
 final readonly class EncryptedFileTokenStore implements TokenStoreInterface
 {
     /**
-     * @param non-empty-string $path File the encrypted token map is kept in
+     * @param non-empty-string $path File holding the encrypted token map
      * @param non-empty-string $key  32-byte secret, e.g. from `random_bytes(32)`
      */
     public function __construct(

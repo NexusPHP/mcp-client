@@ -21,7 +21,7 @@ namespace Nexus\Mcp\Client\Auth;
 interface ClientRegistrationStoreInterface
 {
     /**
-     * @param string $issuer Issuer identifier of the authorization server the registration belongs to.
+     * @param string $issuer Issuer identifier of the authorization server that the registration belongs to.
      */
     public function read(string $issuer): ?ClientRegistration;
 

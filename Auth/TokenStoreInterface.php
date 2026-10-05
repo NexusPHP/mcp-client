@@ -21,7 +21,7 @@ namespace Nexus\Mcp\Client\Auth;
 interface TokenStoreInterface
 {
     /**
-     * @param string $resource Canonical URI of the MCP server the token is bound to
+     * @param string $resource Canonical URI of the MCP server that the token is bound to
      */
     public function read(string $resource): ?AccessToken;
 

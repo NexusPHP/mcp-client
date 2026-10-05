@@ -99,7 +99,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
      * @param float                   $readTimeout      Seconds a response may stall before the exchange is abandoned.
      *                                                  It must exceed the server's SSE keep-alive interval, or a quiet
      *                                                  long-lived stream is torn down between keep-alives.
-     * @param int                     $maxResponseBytes Bytes a buffered body, or one SSE frame, may occupy
+     * @param int                     $maxResponseBytes Bytes that a buffered body, or one SSE frame, may occupy
      */
     public function __construct(
         private readonly string $endpoint,
@@ -264,7 +264,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     }
 
     /**
-     * Whether the current fiber is one the in-progress close is itself running or draining.
+     * Whether the current fiber is one that the in-progress close is itself running or draining.
      */
     private function participatesInClose(): bool
     {
@@ -282,7 +282,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
     }
 
     /**
-     * @param array<non-empty-string, string> $headers Mirrored parameter headers the protocol layer computed
+     * @param array<non-empty-string, string> $headers Mirrored parameter headers computed by the protocol layer
      */
     private function exchange(JsonRpcMessage $message, array $headers, Cancellation $cancellation): void
     {

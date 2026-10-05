@@ -17,8 +17,8 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Thrown when supplied client credentials belong to an authorization server other than the one the protected
- * resource now names.
+ * Thrown when supplied client credentials belong to an authorization server other than the one now named by the
+ * protected resource.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration#authorization-server-binding
  */

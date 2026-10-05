@@ -23,15 +23,15 @@ final readonly class AuthorizationOptions
 {
     /**
      * @param string                  $clientName                  Name shown to the resource owner on a consent screen
-     * @param null|string             $redirectUri                 Redirect URI the authorization response lands on, either loopback or HTTPS. `null` for grants that never visit an authorization endpoint
+     * @param null|string             $redirectUri                 Redirect URI where the authorization response lands, either loopback or HTTPS. `null` for grants that never visit an authorization endpoint
      * @param null|string             $clientIdMetadataDocumentUrl HTTPS URL of a hosted Client ID Metadata Document, used verbatim as `client_id`
      * @param null|ClientRegistration $preRegistered               Credentials issued out of band, which take priority over every other mechanism
      * @param ApplicationType         $applicationType             Declared during Dynamic Client Registration
      * @param int                     $maxScopeUpgrades            How many times a request may be retried after an insufficient-scope challenge
      * @param bool                    $requestOfflineAccess        Whether to ask for `offline_access`, and with it a refresh token, where the authorization server offers it
-     * @param list<non-empty-string>  $defaultScopes               Scopes to ask for when no challenge names any, in place of everything the resource advertises
+     * @param list<non-empty-string>  $defaultScopes               Scopes to ask for when no challenge names any, in place of everything advertised by the resource
      * @param InsufficientScopePolicy $onInsufficientScope         Whether an insufficient-scope answer steps the scopes up or is reported to the caller
-     * @param float                   $timeout                     Seconds a single authorization round trip may take
+     * @param float                   $timeout                     Seconds that a single authorization round trip may take
      * @param bool                    $allowInsecureLoopback       Admits an authorization server reached over cleartext HTTP on a loopback host, which the spec does not exempt. For local development and conformance runs, never production
      */
     public function __construct(

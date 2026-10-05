@@ -46,8 +46,8 @@ final readonly class MetadataDiscovery
     }
 
     /**
-     * Reads the Protected Resource Metadata for an MCP server, preferring the URL a `WWW-Authenticate`
-     * challenge advertised over the well-known URLs.
+     * Reads the Protected Resource Metadata for an MCP server, preferring the URL advertised by a `WWW-Authenticate`
+     * challenge over the well-known URLs.
      */
     public function discoverResource(
         ResourceIdentifier $resource,
@@ -120,7 +120,7 @@ final readonly class MetadataDiscovery
 
     /**
      * Whether a document naming `$named` may be trusted to describe `$resource`, which RFC 9728 extends to
-     * the origin the root well-known URL is assigned to.
+     * the origin that the root well-known URL is assigned to.
      */
     private function describesResource(string $named, string $resource): bool
     {

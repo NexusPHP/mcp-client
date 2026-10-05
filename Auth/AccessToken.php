@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * A bearer access token an authorization server issued for one MCP server.
+ * A bearer access token issued by an authorization server for one MCP server.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
  */
@@ -23,9 +23,9 @@ final readonly class AccessToken
     /**
      * @param string                 $value        The `access_token` value sent in the `Authorization` header
      * @param string                 $issuer       Issuer identifier of the authorization server that minted it
-     * @param null|int               $expiresAt    Unix timestamp the token expires at, or `null` when the server named no lifetime
+     * @param null|int               $expiresAt    Unix timestamp at which the token expires, or `null` when the server named no lifetime
      * @param null|string            $refreshToken The `refresh_token`, when the server issued one
-     * @param list<non-empty-string> $scopes       Scopes the token was granted
+     * @param list<non-empty-string> $scopes       Scopes granted to the token
      */
     public function __construct(
         public string $value,

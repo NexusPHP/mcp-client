@@ -53,14 +53,14 @@ final class AuthorizedHttpClient implements DelegateHttpClient
     private readonly DelegateHttpClient $sealedClient;
 
     /**
-     * @param string                                $resource          Absolute URL of the MCP endpoint this client talks to
+     * @param string                                $resource          Absolute URL of the MCP endpoint that this client talks to
      * @param null|UserAuthorizationInterface       $userAuthorization Puts the resource owner in front of the authorization server on the authorization-code grant. `null` when a grant strategy runs instead
      * @param HttpClientBuilder                     $clientBuilder     Builds the inner clients. Credentialed traffic runs on a derived client that never follows a redirect, so a hop can be refused before the credential travels
      * @param null|TokenStoreInterface              $tokens            Defaults to a store that lives only as long as the process
      * @param null|ClientRegistrationStoreInterface $registrations     Defaults to a store that lives only as long as the process
      * @param null|GrantStrategyInterface           $grantStrategy     An unattended grant run in place of the authorization-code round trip
      * @param null|Semaphore                        $lock              Serialises grants and renewals, defaulting to one that spans this process only
-     * @param Clock                                 $clock             Reads the time expiries are stamped and checked against
+     * @param Clock                                 $clock             Reads the time that expiries are stamped and checked against
      */
     public function __construct(
         string $resource,
@@ -289,7 +289,7 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
     private function authorizeRequest(Request $request, ?AccessToken $token): Request
     {
-        // The request is cloned per attempt so a retry never carries the header a spent token set.
+        // The request is cloned per attempt so a retry never carries the header set by a spent token.
         $attempt = clone $request;
 
         if (null !== $token) {

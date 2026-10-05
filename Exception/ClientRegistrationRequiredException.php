@@ -17,7 +17,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Thrown when an authorization server offers no registration mechanism the client can use.
+ * Thrown when an authorization server offers no registration mechanism that the client can use.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration
  */

@@ -17,7 +17,7 @@ use Nexus\Mcp\Core\Exception\McpExceptionInterface;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Thrown when a response arrived from a URL other than the one the request was sent to.
+ * Thrown when a response arrived from a URL other than the one that the request was sent to.
  *
  * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#communication-security
  */

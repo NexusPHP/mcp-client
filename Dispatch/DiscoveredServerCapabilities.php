@@ -16,7 +16,7 @@ namespace Nexus\Mcp\Client\Dispatch;
 use Nexus\Mcp\Core\Schema\ServerCapabilities;
 
 /**
- * The capabilities the last `server/discover` advertised.
+ * The capabilities advertised by the last `server/discover`.
  *
  * @internal
  */

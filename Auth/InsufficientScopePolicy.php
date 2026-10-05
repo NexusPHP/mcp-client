@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * What a client does when an MCP server answers that the scopes its token carries are insufficient.
+ * What a client does when an MCP server answers that the scopes carried by its token are insufficient.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
  */

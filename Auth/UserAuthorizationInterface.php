@@ -16,12 +16,13 @@ namespace Nexus\Mcp\Client\Auth;
 use Amp\Cancellation;
 
 /**
- * The one leg of the OAuth flow the SDK cannot perform, putting a resource owner in front of the authorization server.
+ * The one leg of the OAuth flow that the SDK cannot perform, putting a resource owner in front of the authorization
+ * server.
  */
 interface UserAuthorizationInterface
 {
     /**
-     * Reports the redirect URI the user-agent arrived at, yielding to the event loop while it waits and
+     * Reports the redirect URI where the user-agent arrived, yielding to the event loop while it waits and
      * giving up when `$cancellation` fires.
      */
     public function authorize(AuthorizationRedirect $redirect, Cancellation $cancellation): AuthorizationCallback;

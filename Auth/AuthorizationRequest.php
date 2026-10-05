@@ -20,7 +20,7 @@ use Nexus\Mcp\Core\Auth\ScopeSet;
 use Nexus\Mcp\Core\SafeDisplay;
 
 /**
- * Builder for the OAuth 2.1 authorization request an MCP client opens in a user-agent.
+ * Builder for the OAuth 2.1 authorization request opened by an MCP client in a user-agent.
  *
  * @internal
  *

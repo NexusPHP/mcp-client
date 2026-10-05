@@ -22,8 +22,8 @@ final readonly class AuthorizationRedirect
 {
     /**
      * @param string $url                     Authorization URL to open in a user-agent
-     * @param string $state                   Opaque value the authorization response must echo
-     * @param string $expectedIssuer          Issuer the authorization response's `iss` is compared against
+     * @param string $state                   Opaque value that the authorization response must echo
+     * @param string $expectedIssuer          Issuer that the authorization response's `iss` is compared against
      * @param bool   $issuerParameterRequired Whether the authorization server advertises that it emits `iss`
      */
     public function __construct(

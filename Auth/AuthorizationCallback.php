@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nexus\Mcp\Client\Auth;
 
 /**
- * The authorization response read from the redirect URI the user-agent landed on.
+ * The authorization response read from the redirect URI where the user-agent landed.
  *
  * @see https://datatracker.ietf.org/doc/html/rfc9207#section-2.4
  */
@@ -26,7 +26,7 @@ final readonly class AuthorizationCallback
     public array $parameters;
 
     /**
-     * @param string $callbackUrl The redirect URI the user-agent arrived at, query string included
+     * @param string $callbackUrl The redirect URI where the user-agent arrived, query string included
      */
     public function __construct(string $callbackUrl)
     {

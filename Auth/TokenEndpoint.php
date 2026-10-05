@@ -76,7 +76,7 @@ final readonly class TokenEndpoint
 
     /**
      * @param array<string, string> $parameters      Full form body of the grant, `grant_type` included
-     * @param ScopeSet              $requestedScopes Scopes the token carries when the response names none
+     * @param ScopeSet              $requestedScopes Scopes carried by the token when the response names none
      */
     public function requestToken(
         AuthorizationServerMetadata $metadata,
@@ -90,7 +90,7 @@ final readonly class TokenEndpoint
 
     /**
      * @param array<string, string> $parameters
-     * @param ScopeSet              $requestedScopes   Scopes the token carries when the response names none
+     * @param ScopeSet              $requestedScopes   Scopes carried by the token when the response names none
      * @param null|string           $priorRefreshToken Refresh token kept when the response rotates none
      */
     private function send(

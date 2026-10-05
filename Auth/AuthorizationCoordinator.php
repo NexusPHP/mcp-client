@@ -73,7 +73,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * The token already held, renewed when it is spent, or `null` when the client has none it can still use.
+     * The token already held, renewed when it is spent, or `null` when the client has none still usable.
      */
     public function fetchToken(Cancellation $cancellation): ?AccessToken
     {
@@ -97,7 +97,7 @@ final class AuthorizationCoordinator
     /**
      * Obtains a token after the MCP server refused the one presented.
      *
-     * @param null|AccessToken $refused The token the MCP server refused, or `null` when the request carried none
+     * @param null|AccessToken $refused The token refused by the MCP server, or `null` when the request carried none
      */
     public function reauthorize(
         ?AccessToken $refused,
@@ -118,10 +118,10 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Obtains a token carrying scopes beyond those the presented one held.
+     * Obtains a token carrying scopes beyond those held by the presented one.
      *
-     * @param null|AccessToken $presented        The token the MCP server found too narrow, or `null` when the request carried none
-     * @param ScopeSet         $additionalScopes Scopes the insufficient-scope challenges asked for, accumulated onto the set already granted
+     * @param null|AccessToken $presented        The token that the MCP server found too narrow, or `null` when the request carried none
+     * @param ScopeSet         $additionalScopes Scopes requested by the insufficient-scope challenges, accumulated onto the set already granted
      */
     public function upgradeScopes(
         ?AccessToken $presented,
@@ -145,7 +145,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * Everything the MCP server has granted this client, whether or not a token still holds it.
+     * Everything granted to this client by the MCP server, whether or not a token still holds it.
      */
     public function readGrantedScopes(): ScopeSet
     {
@@ -366,7 +366,7 @@ final class AuthorizationCoordinator
     }
 
     /**
-     * The scope set a grant starts from: a challenge first, then the client's declared defaults, then the
+     * The starting scope set of a grant: a challenge first, then the client's declared defaults, then the
      * resource's advertised set.
      */
     private function selectBaseline(?WwwAuthenticateChallenge $challenge, ?ScopeSet $advertised): ScopeSet

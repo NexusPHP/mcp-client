@@ -20,7 +20,7 @@ use Nexus\Mcp\Core\Schema\Result\SubscriptionsListenResult;
 use Nexus\Mcp\Core\Schema\SubscriptionFilter;
 
 /**
- * One `subscriptions/listen` stream the client holds open past the connection it was opened on.
+ * One `subscriptions/listen` stream held open by the client past the connection it was opened on.
  *
  * @internal
  */
