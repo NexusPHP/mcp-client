@@ -305,6 +305,7 @@ final class AuthorizationCoordinator
                 $this->registrar->resolve($server, $this->options, $cancellation),
                 $token,
                 $discovered->metadata->resource,
+                $this->options->sendScopeOnRefresh,
                 $cancellation,
             );
         } catch (AuthorizationGrantRejectedException|ClientRegistrationRejectedException|MalformedAuthorizationResponseException $e) {

@@ -62,16 +62,25 @@ final readonly class TokenEndpoint
         ClientRegistration $registration,
         AccessToken $token,
         ResourceIdentifier $resource,
+        bool $sendScope,
         Cancellation $cancellation,
     ): AccessToken {
         $refreshToken = $token->refreshToken;
         Assert::that($refreshToken)->isString('The access token carries no refresh token to redeem.');
 
-        return $this->send($metadata, $registration, [
+        $scopes = new ScopeSet($token->scopes);
+        $parameters = [
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
             'resource' => $resource->value,
-        ], new ScopeSet($token->scopes), $refreshToken, $cancellation);
+        ];
+        $scope = $scopes->toParameter();
+
+        if ($sendScope && null !== $scope) {
+            $parameters['scope'] = $scope;
+        }
+
+        return $this->send($metadata, $registration, $parameters, $scopes, $refreshToken, $cancellation);
     }
 
     /**

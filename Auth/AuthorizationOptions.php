@@ -33,6 +33,7 @@ final readonly class AuthorizationOptions
      * @param InsufficientScopePolicy $onInsufficientScope         Whether an insufficient-scope answer steps the scopes up or is reported to the caller
      * @param float                   $timeout                     Seconds that a single authorization round trip may take
      * @param bool                    $allowInsecureLoopback       Admits an authorization server reached over cleartext HTTP on a loopback host, which the spec does not exempt. For local development and conformance runs, never production
+     * @param bool                    $sendScopeOnRefresh          Whether a refresh-token request names the token's scopes
      */
     public function __construct(
         public string $clientName,
@@ -46,6 +47,7 @@ final readonly class AuthorizationOptions
         public InsufficientScopePolicy $onInsufficientScope = InsufficientScopePolicy::Reauthorize,
         public float $timeout = 10.0,
         public bool $allowInsecureLoopback = false,
+        public bool $sendScopeOnRefresh = false,
     ) {
         $secureEndpoint = new SecureEndpoint($allowInsecureLoopback);
 
