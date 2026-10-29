@@ -47,7 +47,7 @@ final readonly class SecureEndpoint
             $url,
         ));
 
-        if ('https' === $parts['scheme'] || $this->isLoopback($parts['host'])) {
+        if ('https' === $parts['scheme'] || ('http' === $parts['scheme'] && $this->isLoopback($parts['host']))) {
             return;
         }
 
