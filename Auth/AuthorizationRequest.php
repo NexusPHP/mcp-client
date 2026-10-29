@@ -37,6 +37,7 @@ final class AuthorizationRequest
         ResourceIdentifier $resource,
         ScopeSet $scopes,
         SecureEndpoint $secureEndpoint = new SecureEndpoint(),
+        bool $skipOfflineAccessConsent = false,
     ): AuthorizationRedirect {
         $endpoint = $metadata->authorizationEndpoint;
         Assert::that($endpoint)->isNonEmptyString(\sprintf(
@@ -64,7 +65,7 @@ final class AuthorizationRequest
             $parameters['scope'] = $scope;
         }
 
-        if ($scopes->contains(ScopeSet::OFFLINE_ACCESS)) {
+        if (! $skipOfflineAccessConsent && $scopes->contains(ScopeSet::OFFLINE_ACCESS)) {
             $parameters['prompt'] = 'consent';
         }
 

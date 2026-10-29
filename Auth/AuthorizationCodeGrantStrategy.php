@@ -44,6 +44,7 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
             $context->resource,
             $context->scopes,
             new SecureEndpoint($context->options->allowInsecureLoopback),
+            $context->options->skipOfflineAccessConsent,
         );
 
         $code = AuthorizationResponse::readCode(

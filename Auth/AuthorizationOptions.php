@@ -34,6 +34,7 @@ final readonly class AuthorizationOptions
      * @param float                   $timeout                     Seconds that a single authorization round trip may take
      * @param bool                    $allowInsecureLoopback       Admits an authorization server reached over cleartext HTTP on a loopback host, which the spec does not exempt. For local development and conformance runs, never production
      * @param bool                    $sendScopeOnRefresh          Whether a refresh-token request names the token's scopes
+     * @param bool                    $skipOfflineAccessConsent    Whether an authorization request asking for `offline_access` omits `prompt=consent`
      */
     public function __construct(
         public string $clientName,
@@ -48,6 +49,7 @@ final readonly class AuthorizationOptions
         public float $timeout = 10.0,
         public bool $allowInsecureLoopback = false,
         public bool $sendScopeOnRefresh = false,
+        public bool $skipOfflineAccessConsent = false,
     ) {
         $secureEndpoint = new SecureEndpoint($allowInsecureLoopback);
 
