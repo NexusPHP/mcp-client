@@ -15,6 +15,8 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
+use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
 
 /**
  * The OAuth 2.1 authorization-code grant.
@@ -34,6 +36,8 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
     {
         $redirectUri = $context->options->redirectUri;
         Assert::that($redirectUri)->isNonEmptyString('The authorization-code grant needs a redirect URI, and the authorization options carry none.');
+
+        $this->verifyPkceSupport($context->discovered->server);
 
         $registration = $context->resolveRegistration($cancellation);
 
@@ -70,5 +74,17 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
     public function renewsByFreshGrant(): bool
     {
         return false;
+    }
+
+    /**
+     * @throws PkceNotSupportedException
+     */
+    private function verifyPkceSupport(AuthorizationServerMetadata $server): void
+    {
+        $methods = $server->codeChallengeMethodsSupported;
+
+        if (null === $methods || ! \in_array(PkcePair::CHALLENGE_METHOD, $methods, true)) {
+            throw new PkceNotSupportedException($server->issuer);
+        }
     }
 }

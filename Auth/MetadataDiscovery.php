@@ -17,7 +17,6 @@ use Amp\Cancellation;
 use Amp\Http\Client\DelegateHttpClient;
 use Amp\Http\Client\Request;
 use Nexus\Mcp\Client\Exception\MalformedAuthorizationResponseException;
-use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
 use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
@@ -110,8 +109,6 @@ final readonly class MetadataDiscovery
                 ));
             }
 
-            $this->verifyPkceSupport($metadata);
-
             return $metadata;
         }
 
@@ -178,15 +175,6 @@ final readonly class MetadataDiscovery
             \sprintf('the %s answered with a document off the shape the spec fixes.', $label),
             $cause,
         );
-    }
-
-    private function verifyPkceSupport(AuthorizationServerMetadata $metadata): void
-    {
-        $methods = $metadata->codeChallengeMethodsSupported;
-
-        if (null === $methods || ! \in_array(PkcePair::CHALLENGE_METHOD, $methods, true)) {
-            throw new PkceNotSupportedException($metadata->issuer);
-        }
     }
 
     /**
