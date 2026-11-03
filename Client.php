@@ -718,7 +718,7 @@ final class Client
             if (isset($seen[$cursor->cursor])) {
                 unset($this->toolHeaderBindings[$name]);
                 $this->logger->warning(
-                    'Server sent cursor {cursor} again while re-listing tool {tool}, first seen on page {page}, so the refresh stopped.',
+                    'Server repeated cursor {cursor} (page {page}) while re-listing {tool}, so the refresh stopped.',
                     [
                         'cursor' => SafeDisplay::sanitise($cursor->cursor),
                         'tool' => $name,

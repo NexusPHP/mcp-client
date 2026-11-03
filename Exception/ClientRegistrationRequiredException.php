@@ -26,7 +26,7 @@ final class ClientRegistrationRequiredException extends \RuntimeException implem
     public function __construct(string $issuer)
     {
         parent::__construct(\sprintf(
-            'The authorization server "%s" supports neither Client ID Metadata Documents nor Dynamic Client Registration, so a client identifier must be supplied for it.',
+            'Authorization server "%s" supports neither Client ID Metadata Documents nor Dynamic Client Registration.',
             SafeDisplay::sanitiseCause($issuer),
         ));
     }

@@ -24,9 +24,6 @@ final class UntrustedAuthorizationMetadataException extends \RuntimeException im
 {
     public function __construct(string $reason, ?\Throwable $previous = null)
     {
-        parent::__construct(
-            \sprintf('The authorization metadata cannot be trusted because %s', $reason),
-            previous: $previous,
-        );
+        parent::__construct(\sprintf('Untrusted authorization metadata: %s', $reason), previous: $previous);
     }
 }

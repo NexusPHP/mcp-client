@@ -26,7 +26,7 @@ final class PkceNotSupportedException extends \RuntimeException implements McpEx
     public function __construct(string $issuer)
     {
         parent::__construct(\sprintf(
-            'The authorization server "%s" does not advertise the S256 code challenge method, so authorization cannot proceed.',
+            'The authorization server "%s" does not advertise PKCE S256, so authorization cannot proceed.',
             SafeDisplay::sanitiseCause($issuer),
         ));
     }

@@ -25,7 +25,7 @@ final class ClientRegistrationRejectedException extends \RuntimeException implem
     public function __construct(?string $description = null)
     {
         parent::__construct(\sprintf(
-            'The authorization server does not recognise the client identifier presented to it, so the client must register again%s',
+            'The authorization server does not recognise the client identifier, so the client must register again%s',
             null === $description ? '.' : \sprintf(': %s', $description),
         ));
     }

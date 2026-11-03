@@ -292,7 +292,7 @@ final class ClientBuilder
         if (\array_key_exists($method, $registry)) {
             Assert::that($request)->isIdentical(
                 $registry[$method],
-                \sprintf('Request method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.', $method),
+                \sprintf('Spec-defined request method "%s" keeps its registry class, {value} given.', $method),
             );
         } else {
             $this->requestClasses[$method] = $request;
@@ -321,7 +321,7 @@ final class ClientBuilder
         } else {
             Assert::that($notification)->isIdentical(
                 $registryClass,
-                \sprintf('Notification method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.', $method),
+                \sprintf('Spec-defined notification method "%s" keeps its registry class, {value} given.', $method),
             );
         }
 

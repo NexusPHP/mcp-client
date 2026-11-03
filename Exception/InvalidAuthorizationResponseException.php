@@ -24,6 +24,6 @@ final class InvalidAuthorizationResponseException extends \RuntimeException impl
 {
     public function __construct(string $reason)
     {
-        parent::__construct(\sprintf('The authorization response cannot be used because %s', $reason));
+        parent::__construct(\sprintf('Unusable authorization response: %s', $reason));
     }
 }

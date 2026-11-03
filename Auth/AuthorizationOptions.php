@@ -63,7 +63,7 @@ final readonly class AuthorizationOptions
 
         if (TokenEndpointAuthMethod::PrivateKeyJwt === $preRegistered?->tokenEndpointAuthMethod) {
             throw new \InvalidArgumentException(\sprintf(
-                'Pre-registered credentials cannot authenticate with "%s". Configure a ClientCredentialsGrant with a PrivateKeyJwtCredential instead.',
+                'Pre-registered credentials cannot use "%s". Use ClientCredentialsGrant with PrivateKeyJwtCredential.',
                 TokenEndpointAuthMethod::PrivateKeyJwt->value,
             ));
         }

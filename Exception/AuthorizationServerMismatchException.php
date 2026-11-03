@@ -27,7 +27,7 @@ final class AuthorizationServerMismatchException extends \RuntimeException imple
     public function __construct(string $registeredIssuer, string $currentIssuer)
     {
         parent::__construct(\sprintf(
-            'The supplied client credentials were registered with "%s" but the protected resource now names "%s", and credentials are not portable between authorization servers.',
+            'Client credentials registered with "%s" cannot be used: the resource now names "%s".',
             $registeredIssuer,
             SafeDisplay::sanitiseCause($currentIssuer),
         ));

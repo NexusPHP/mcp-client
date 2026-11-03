@@ -423,7 +423,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 $this->subscriptions->forget($subscription->subscriptionId);
                 $subscription->outcome->error(new SubscriptionDeliveryDroppedException($subscription->subscriptionId));
                 $this->logger->warning(
-                    'Ended subscription {subscriptionId} after shedding one of its deliveries at the in-flight dispatch cap.',
+                    'Ended subscription {subscriptionId} after shedding a delivery at the in-flight dispatch cap.',
                     ['subscriptionId' => $subscription->subscriptionId->id, 'method' => $method],
                 );
 
