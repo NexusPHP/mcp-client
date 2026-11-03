@@ -129,19 +129,22 @@ final class AuthorizationCoordinator
         ?WwwAuthenticateChallenge $challenge,
         Cancellation $cancellation,
     ): AccessToken {
-        return $this->runExclusively($cancellation, function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
-            $current = $this->readToken();
+        return $this->runExclusively(
+            $cancellation,
+            function () use ($presented, $additionalScopes, $challenge, $cancellation): AccessToken {
+                $current = $this->readToken();
 
-            if (null !== $this->discovered
-                && null !== $current
-                && $current->value !== $presented?->value
-                && (new ScopeSet($current->scopes))->containsAll($additionalScopes)
-            ) {
-                return $current;
-            }
+                if (null !== $this->discovered
+                    && null !== $current
+                    && $current->value !== $presented?->value
+                    && (new ScopeSet($current->scopes))->containsAll($additionalScopes)
+                ) {
+                    return $current;
+                }
 
-            return $this->runAuthorization($challenge, $additionalScopes, $cancellation);
-        });
+                return $this->runAuthorization($challenge, $additionalScopes, $cancellation);
+            },
+        );
     }
 
     /**
@@ -191,7 +194,8 @@ final class AuthorizationCoordinator
         try {
             return $pending->await($cancellation);
         } catch (CancelledException $e) {
-            // The abandoned acquisition stays queued and is eventually handed a permit, which must not wait on collection to return.
+            // The abandoned acquisition stays queued and is eventually handed a permit,
+            // which must not wait on collection to return.
             $pending->map(static function (Lock $lock): void { $lock->release(); })->ignore();
 
             throw $e;
@@ -313,10 +317,10 @@ final class AuthorizationCoordinator
                 $this->registrar->forget($server->issuer);
             }
 
-            $this->logger->info('The token for {resource} could not be renewed, so a new authorization is needed. {reason}', [
-                'resource' => $this->resource->value,
-                'reason' => SafeDisplay::sanitiseCause($e->getMessage()),
-            ]);
+            $this->logger->info(
+                'The token for {resource} could not be renewed, so a new authorization is needed. {reason}',
+                ['resource' => $this->resource->value, 'reason' => SafeDisplay::sanitiseCause($e->getMessage())],
+            );
             $this->giveUpOnToken();
 
             return null;
@@ -383,6 +387,7 @@ final class AuthorizationCoordinator
 
     private function hasExpired(AccessToken $token): bool
     {
-        return null !== $token->expiresAt && $token->expiresAt <= $this->clock->now()->getTimestamp() + self::EXPIRY_LEEWAY_SECONDS;
+        return null !== $token->expiresAt
+            && $token->expiresAt <= $this->clock->now()->getTimestamp() + self::EXPIRY_LEEWAY_SECONDS;
     }
 }

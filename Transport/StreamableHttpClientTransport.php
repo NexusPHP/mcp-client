@@ -111,7 +111,10 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         Assert::that($endpoint)->isNonEmptyString('Streamable HTTP client endpoint must be a non-empty string.');
 
         if ($readTimeout <= 0.0) {
-            throw new \InvalidArgumentException(\sprintf('Streamable HTTP client read timeout must be positive, %s given.', $readTimeout));
+            throw new \InvalidArgumentException(\sprintf(
+                'Streamable HTTP client read timeout must be positive, %s given.',
+                $readTimeout,
+            ));
         }
 
         Assert::that($maxResponseBytes)->isPositiveInt(
@@ -135,7 +138,10 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
 
         $this->state = TransportState::Running;
         $this->lifetime = new DeferredCancellation();
-        $this->logger->info('Streamable HTTP client transport started. Endpoint: {endpoint}.', ['endpoint' => $this->endpoint]);
+        $this->logger->info(
+            'Streamable HTTP client transport started. Endpoint: {endpoint}.',
+            ['endpoint' => $this->endpoint],
+        );
     }
 
     #[\Override]
@@ -148,7 +154,9 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
         };
 
         if ($message instanceof JsonRpcResponse) {
-            $this->logger->warning('Streamable HTTP client transport dropped an outbound response, which a client must not send.');
+            $this->logger->warning(
+                'Streamable HTTP client transport dropped an outbound response, which a client must not send.',
+            );
 
             return;
         }
@@ -179,9 +187,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                 // A close or an abort is not a fault, and the protocol layer signalled both.
             } catch (\Throwable $e) {
                 try {
-                    $this->events->emitError(null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e));
+                    $error = null === $requestId ? $e : new OutboundRequestFailedException($requestId, $e);
+                    $this->events->emitError($error);
                 } catch (\Throwable) {
-                    // A listener that throws must not cost this exchange its release, and the error channel itself has failed.
+                    // A listener that throws must not cost this exchange its release,
+                    // and the error channel itself has  sfailed.
                 }
             }
 
@@ -316,7 +326,9 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
                 && ! \array_key_exists('method', $decoded)
                 && (\array_key_exists('result', $decoded) || \array_key_exists('error', $decoded))
             ) {
-                Assert::that($decoded)->isMap('Streamable HTTP client received a response envelope that is not a string-keyed object.');
+                Assert::that($decoded)->isMap(
+                    'Streamable HTTP client received a response envelope that is not a string-keyed object.',
+                );
                 $this->events->emitMessage($decoded, new ReceiveContext());
 
                 return;
@@ -351,7 +363,11 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
      */
     private function buildRequest(JsonRpcMessage $message, array $headers): Request
     {
-        $request = new Request($this->endpoint, 'POST', json_encode($message, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
+        $request = new Request(
+            $this->endpoint,
+            'POST',
+            json_encode($message, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE),
+        );
 
         $request->setHeaders([
             'Content-Type' => 'application/json',

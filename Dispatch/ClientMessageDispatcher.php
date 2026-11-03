@@ -105,7 +105,10 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
     #[\Override]
     public function dispatch(array $envelope, TransportInterface $transport, ReceiveContext $context): void
     {
-        if (! \array_key_exists('method', $envelope) && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))) {
+        if (
+            ! \array_key_exists('method', $envelope)
+            && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))
+        ) {
             $this->dispatchResponseEnvelope($envelope);
         } else {
             $this->dispatchInboundEnvelope($envelope, $transport);
@@ -165,7 +168,8 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                 ['exception' => $e],
             );
 
-            // §4.1 splits notification from request on the envelope's id, not on the method it names, so an id-less one goes unanswered.
+            // §4.1 splits notification from request on the envelope's id, not on the method it names,
+            // so an id-less one goes unanswered.
             if ($isNotification) {
                 return;
             }
@@ -174,8 +178,12 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
             return;
         } catch (AbstractJsonRpcProtocolException $e) {
-            // A peer that named a result or an error against this id will send nothing further for it, so the awaiter must not keep waiting.
-            if (null !== $e->requestId && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))) {
+            // A peer that named a result or an error against this id will send nothing further for it,
+            // so the awaiter must not keep waiting.
+            if (
+                null !== $e->requestId
+                && (\array_key_exists('result', $envelope) || \array_key_exists('error', $envelope))
+            ) {
                 $this->outboundRequests->reject($e->requestId, $e);
             }
 
@@ -244,7 +252,10 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
         if (! $this->outboundRequests->reject($response->id, $exception)) {
             $this->logger->warning(
                 'Discarding orphan error response for unknown request id.',
-                ['id' => SafeDisplay::sanitiseId($response->id->id), 'error' => SafeDisplay::sanitiseCause($response->error->message)],
+                [
+                    'id' => SafeDisplay::sanitiseId($response->id->id),
+                    'error' => SafeDisplay::sanitiseCause($response->error->message),
+                ],
             );
         }
     }
@@ -286,13 +297,17 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         if ($this->isSaturated()) {
             $this->reportShed($method);
-            $this->responseSender->send($transport, new JsonRpcErrorResponse(
-                id: $request->id,
-                error: new UnknownProtocolError(
-                    code: SdkErrorCode::Overloaded->value,
-                    message: 'Client overloaded',
+            $this->responseSender->send(
+                $transport,
+                new JsonRpcErrorResponse(
+                    id: $request->id,
+                    error: new UnknownProtocolError(
+                        code: SdkErrorCode::Overloaded->value,
+                        message: 'Client overloaded',
+                    ),
                 ),
-            ), $method);
+                $method,
+            );
 
             return;
         }
@@ -301,7 +316,11 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         if (null === $cancellation) {
             $exception = new DuplicateInboundRequestIdException($request->id);
-            $this->responseSender->send($transport, ResponseSender::buildErrorResponse($exception, $request->id), $method);
+            $this->responseSender->send(
+                $transport,
+                ResponseSender::buildErrorResponse($exception, $request->id),
+                $method,
+            );
 
             return;
         }
@@ -327,7 +346,12 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
                     return;
                 } catch (AbstractJsonRpcProtocolException $e) {
-                    $this->sendUnlessCancelled($cancellation, $transport, ResponseSender::buildErrorResponse($e, $request->id), $method);
+                    $this->sendUnlessCancelled(
+                        $cancellation,
+                        $transport,
+                        ResponseSender::buildErrorResponse($e, $request->id),
+                        $method,
+                    );
 
                     return;
                 } catch (\Throwable $e) {
@@ -344,10 +368,14 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
                         'Uncaught request handler exception.',
                         ['method' => $method, 'exception' => $e],
                     );
-                    $this->responseSender->send($transport, new JsonRpcErrorResponse(
-                        id: $request->id,
-                        error: new InternalError(message: InternalError::DEFAULT_MESSAGE),
-                    ), $method);
+                    $this->responseSender->send(
+                        $transport,
+                        new JsonRpcErrorResponse(
+                            id: $request->id,
+                            error: new InternalError(message: InternalError::DEFAULT_MESSAGE),
+                        ),
+                        $method,
+                    );
 
                     return;
                 }
@@ -390,7 +418,8 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         if (null !== $subscription) {
             if ($this->isSaturated()) {
-                // A lost delivery is undetectable from later ones, so the stream ends rather than staying silently stale.
+                // A lost delivery is undetectable from later ones, so the stream
+                // ends rather than staying silently stale.
                 $this->subscriptions->forget($subscription->subscriptionId);
                 $subscription->outcome->error(new SubscriptionDeliveryDroppedException($subscription->subscriptionId));
                 $this->logger->warning(

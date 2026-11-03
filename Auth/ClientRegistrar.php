@@ -109,18 +109,24 @@ final readonly class ClientRegistrar
         }
 
         $redirectUri = $options->redirectUri;
-        Assert::that($redirectUri)->isNonEmptyString('Dynamic Client Registration needs a redirect URI, and the authorization options carry none.');
+        Assert::that($redirectUri)->isNonEmptyString(
+            'Dynamic Client Registration needs a redirect URI, and the authorization options carry none.',
+        );
 
         $this->secureEndpoint->verifyAuthorizationServerUrl($endpoint, 'registration endpoint');
 
-        $request = new Request($endpoint, 'POST', json_encode([
-            'client_name' => $options->clientName,
-            'redirect_uris' => [$redirectUri],
-            'grant_types' => ['authorization_code', 'refresh_token'],
-            'response_types' => ['code'],
-            'token_endpoint_auth_method' => TokenEndpointAuthMethod::None->value,
-            'application_type' => $options->applicationType->value,
-        ], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+        $request = new Request(
+            $endpoint,
+            'POST',
+            json_encode([
+                'client_name' => $options->clientName,
+                'redirect_uris' => [$redirectUri],
+                'grant_types' => ['authorization_code', 'refresh_token'],
+                'response_types' => ['code'],
+                'token_endpoint_auth_method' => TokenEndpointAuthMethod::None->value,
+                'application_type' => $options->applicationType->value,
+            ], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES),
+        );
         $request->setHeader('Content-Type', 'application/json');
 
         [$status, $payload] = $this->exchange->send($request, $cancellation);
@@ -135,7 +141,9 @@ final readonly class ClientRegistrar
 
         $secret = $this->reader->readString($data, 'client_secret');
         $expiresAt = $this->reader->readInt($data, 'client_secret_expires_at');
-        Assert::that($expiresAt)->nullOr()->isNaturalInt('Client registration response "client_secret_expires_at" must be a non-negative integer, {value} given.');
+        Assert::that($expiresAt)->nullOr()->isNaturalInt(
+            'Client registration response "client_secret_expires_at" must be a non-negative integer, {value} given.',
+        );
 
         return new ClientRegistration(
             $this->reader->readRequiredString($data, 'client_id'),
@@ -158,7 +166,10 @@ final readonly class ClientRegistrar
 
     private function bindAuthMethod(ClientRegistration $registration): TokenEndpointAuthMethod
     {
-        if (TokenEndpointAuthMethod::None !== $registration->tokenEndpointAuthMethod || null === $registration->clientSecret) {
+        if (
+            TokenEndpointAuthMethod::None !== $registration->tokenEndpointAuthMethod
+            || null === $registration->clientSecret
+        ) {
             return $registration->tokenEndpointAuthMethod;
         }
 
@@ -181,7 +192,10 @@ final readonly class ClientRegistrar
         if (null === $method || TokenEndpointAuthMethod::PrivateKeyJwt === $method) {
             throw $this->buildRegistrationFailure(
                 'invalid_client_metadata',
-                \sprintf('The client was registered with the unsupported "%s" token endpoint authentication method.', SafeDisplay::sanitise($declared)),
+                \sprintf(
+                    'The client was registered with the unsupported "%s" token endpoint authentication method.',
+                    SafeDisplay::sanitise($declared),
+                ),
             );
         }
 

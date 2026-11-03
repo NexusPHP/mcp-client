@@ -23,8 +23,9 @@ final class SubscriptionDeliveryDroppedException extends \RuntimeException imple
 {
     public function __construct(public readonly RequestId $subscriptionId)
     {
-        parent::__construct(
-            \sprintf('Subscription %s was ended because a delivery was shed at the client\'s in-flight dispatch cap.', var_export($subscriptionId->id, true)),
-        );
+        parent::__construct(\sprintf(
+            'Subscription %s was ended because a delivery was shed at the client\'s in-flight dispatch cap.',
+            var_export($subscriptionId->id, true),
+        ));
     }
 }

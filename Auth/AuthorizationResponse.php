@@ -67,14 +67,18 @@ final class AuthorizationResponse
 
         if (null === $issuer) {
             if ($redirect->issuerParameterRequired) {
-                throw new InvalidAuthorizationResponseException('it omits the "iss" the authorization server advertises that it emits.');
+                throw new InvalidAuthorizationResponseException(
+                    'it omits the "iss" the authorization server advertises that it emits.',
+                );
             }
 
             return;
         }
 
         if ($issuer !== $redirect->expectedIssuer) {
-            throw new InvalidAuthorizationResponseException('its "iss" names an authorization server other than the one the request was sent to.');
+            throw new InvalidAuthorizationResponseException(
+                'its "iss" names an authorization server other than the one the request was sent to.',
+            );
         }
     }
 }

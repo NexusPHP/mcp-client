@@ -31,10 +31,17 @@ final class InsufficientScopeException extends \RuntimeException implements McpE
         public readonly array $required,
         bool $named = false,
     ) {
-        parent::__construct(match (true) {
-            [] !== $required => \sprintf('The MCP server requires the scope "%s".', SafeDisplay::sanitiseCause(implode(' ', $required))),
-            $named => 'The MCP server named only scopes that are not RFC 6749 scope-tokens, so none can be requested.',
-            default => 'The MCP server answered insufficient_scope without naming a scope.',
-        });
+        if ([] !== $required) {
+            $message = \sprintf(
+                'The MCP server requires the scope "%s".',
+                SafeDisplay::sanitiseCause(implode(' ', $required)),
+            );
+        } elseif ($named) {
+            $message = 'The MCP server named only scopes that are not RFC 6749 scope-tokens, so none can be requested.';
+        } else {
+            $message = 'The MCP server answered insufficient_scope without naming a scope.';
+        }
+
+        parent::__construct($message);
     }
 }

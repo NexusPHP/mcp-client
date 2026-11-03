@@ -75,11 +75,18 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         Clock $clock = new SystemClock(),
     ) {
         if (null !== $userAuthorization) {
-            Assert::that($grantStrategy)->isNull('A user authorization and a grant strategy were both given, and the client can run only one.');
-            Assert::that($options->redirectUri)->isNonEmptyString('A user authorization needs a redirect URI, and the authorization options carry none.');
+            Assert::that($grantStrategy)->isNull(
+                'A user authorization and a grant strategy were both given, and the client can run only one.',
+            );
+            Assert::that($options->redirectUri)->isNonEmptyString(
+                'A user authorization needs a redirect URI, and the authorization options carry none.',
+            );
             $strategy = new AuthorizationCodeGrantStrategy($userAuthorization);
         } else {
-            Assert::that($grantStrategy)->isInstanceOf(GrantStrategyInterface::class, 'The client needs a user authorization or a grant strategy to obtain tokens, and neither was given.');
+            Assert::that($grantStrategy)->isInstanceOf(
+                GrantStrategyInterface::class,
+                'The client needs a user authorization or a grant strategy to obtain tokens, and neither was given.',
+            );
             $strategy = $grantStrategy;
         }
 
@@ -156,15 +163,19 @@ final class AuthorizedHttpClient implements DelegateHttpClient
                         'attempts' => $scopeUpgrades,
                     ]);
 
-                    $this->reportInsufficientScope($response, $additionalScopes->mergeWith($challenged), $cancellation, null !== $declaredScope);
+                    $this->reportInsufficientScope(
+                        $response,
+                        $additionalScopes->mergeWith($challenged),
+                        $cancellation,
+                        null !== $declaredScope,
+                    );
                 }
 
                 if ((new ScopeSet($token->scopes ?? []))->containsAll($challenged)) {
+                    $namedScopes = $challenged->toParameter() ?? $this->describeUnusableChallenge($declaredScope);
                     $this->logger->warning('The scope challenge from {resource} names {scopes}.', [
                         'resource' => $this->resource->value,
-                        'scopes' => SafeDisplay::sanitiseCause(
-                            $challenged->toParameter() ?? $this->describeUnusableChallenge($declaredScope),
-                        ),
+                        'scopes' => SafeDisplay::sanitiseCause($namedScopes),
                     ]);
 
                     $this->reportInsufficientScope($response, $challenged, $cancellation, null !== $declaredScope);
@@ -271,8 +282,12 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         return null === $declaredScope ? 'no scope at all' : 'only scopes that are not RFC 6749 scope-tokens';
     }
 
-    private function reportInsufficientScope(Response $response, ScopeSet $challenged, Cancellation $cancellation, bool $named): never
-    {
+    private function reportInsufficientScope(
+        Response $response,
+        ScopeSet $challenged,
+        Cancellation $cancellation,
+        bool $named,
+    ): never {
         $this->drain($response, $cancellation);
 
         throw new InsufficientScopeException($challenged->values, $named);
@@ -283,7 +298,8 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         try {
             $response->getBody()->buffer($cancellation, limit: self::MAX_CHALLENGE_BODY_BYTES);
         } catch (HttpException|StreamException) {
-            // Losing a challenge body is no reason to abandon the recovery it asked for, where a cancellation propagates instead.
+            // Losing a challenge body is no reason to abandon the recovery it asked for,
+            // where a cancellation propagates instead.
         }
     }
 
@@ -293,7 +309,10 @@ final class AuthorizedHttpClient implements DelegateHttpClient
         $attempt = clone $request;
 
         if (null !== $token) {
-            $attempt->setHeader('Authorization', \sprintf('%s %s', WwwAuthenticateChallenge::BEARER_SCHEME, $token->value));
+            $attempt->setHeader(
+                'Authorization',
+                \sprintf('%s %s', WwwAuthenticateChallenge::BEARER_SCHEME, $token->value),
+            );
         }
 
         return $attempt;

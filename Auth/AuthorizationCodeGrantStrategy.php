@@ -35,7 +35,9 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
     public function grant(GrantContext $context, Cancellation $cancellation): AccessToken
     {
         $redirectUri = $context->options->redirectUri;
-        Assert::that($redirectUri)->isNonEmptyString('The authorization-code grant needs a redirect URI, and the authorization options carry none.');
+        Assert::that($redirectUri)->isNonEmptyString(
+            'The authorization-code grant needs a redirect URI, and the authorization options carry none.',
+        );
 
         $this->verifyPkceSupport($context->discovered->server);
 

@@ -169,8 +169,10 @@ final readonly class MetadataDiscovery
         }
     }
 
-    private function describeUnreadable(string $label, \InvalidArgumentException $cause): UntrustedAuthorizationMetadataException
-    {
+    private function describeUnreadable(
+        string $label,
+        \InvalidArgumentException $cause,
+    ): UntrustedAuthorizationMetadataException {
         return new UntrustedAuthorizationMetadataException(
             \sprintf('the %s answered with a document off the shape the spec fixes.', $label),
             $cause,

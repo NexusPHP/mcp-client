@@ -182,7 +182,10 @@ final class ClientBuilder
         $this->assertNotBuilt();
 
         if (null !== $seconds && $seconds <= 0.0) {
-            throw new \InvalidArgumentException(\sprintf('The request timeout must be positive or null, %s given.', $seconds));
+            throw new \InvalidArgumentException(\sprintf(
+                'The request timeout must be positive or null, %s given.',
+                $seconds,
+            ));
         }
 
         $this->requestTimeout = $seconds;
@@ -198,7 +201,10 @@ final class ClientBuilder
         $this->assertNotBuilt();
 
         if (null !== $seconds && $seconds <= 0.0) {
-            throw new \InvalidArgumentException(\sprintf('The maximum request timeout must be positive or null, %s given.', $seconds));
+            throw new \InvalidArgumentException(\sprintf(
+                'The maximum request timeout must be positive or null, %s given.',
+                $seconds,
+            ));
         }
 
         $this->maxRequestTimeout = $seconds;
@@ -226,7 +232,9 @@ final class ClientBuilder
     {
         $this->assertNotBuilt();
 
-        Assert::that($max)->nullOr()->isPositiveInt('Maximum in-flight dispatches must be a positive integer or null, {value} given.');
+        Assert::that($max)->nullOr()->isPositiveInt(
+            'Maximum in-flight dispatches must be a positive integer or null, {value} given.',
+        );
 
         $this->maxInFlight = $max;
 
@@ -282,10 +290,10 @@ final class ClientBuilder
         $registry = JsonRpcMethodRegistry::requests();
 
         if (\array_key_exists($method, $registry)) {
-            Assert::that($request)->isIdentical($registry[$method], \sprintf(
-                'Request method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
-                $method,
-            ));
+            Assert::that($request)->isIdentical(
+                $registry[$method],
+                \sprintf('Request method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.', $method),
+            );
         } else {
             $this->requestClasses[$method] = $request;
         }
@@ -311,10 +319,10 @@ final class ClientBuilder
         if (null === $registryClass) {
             $this->notificationClasses[$method] = $notification;
         } else {
-            Assert::that($notification)->isIdentical($registryClass, \sprintf(
-                'Notification method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.',
-                $method,
-            ));
+            Assert::that($notification)->isIdentical(
+                $registryClass,
+                \sprintf('Notification method "%s" is defined by the MCP specification and keeps its registry envelope class, {value} given.', $method),
+            );
         }
 
         $this->notificationHandlers[$method] = $handler;
@@ -342,7 +350,11 @@ final class ClientBuilder
 
         foreach ($this->extensions->getRequestHandlerGroups() as $identifier => $group) {
             foreach ($group as $extensionMethod => $extensionHandler) {
-                $extensionRequestHandlers[$extensionMethod] = new ExtensionGateRequestHandler($identifier, $extensionHandler, $discoveredCapabilities);
+                $extensionRequestHandlers[$extensionMethod] = new ExtensionGateRequestHandler(
+                    $identifier,
+                    $extensionHandler,
+                    $discoveredCapabilities,
+                );
             }
         }
 
@@ -353,7 +365,12 @@ final class ClientBuilder
         foreach ($this->extensions->buildNotificationHandlers() as $extensionMethod => $extensionHandler) {
             $owner = $this->extensions->findNotificationOwner($extensionMethod);
             \assert(\is_string($owner));
-            $extensionNotificationHandlers[$extensionMethod] = new ExtensionGateNotificationHandler($owner, $extensionHandler, $discoveredCapabilities, $this->logger);
+            $extensionNotificationHandlers[$extensionMethod] = new ExtensionGateNotificationHandler(
+                $owner,
+                $extensionHandler,
+                $discoveredCapabilities,
+                $this->logger,
+            );
         }
 
         $notificationHandlers = [
@@ -403,7 +420,9 @@ final class ClientBuilder
     private function assertNotBuilt(): void
     {
         if ($this->built) {
-            throw new LogicException('This builder has already been built. Construct a new ClientBuilder for another client.');
+            throw new LogicException(
+                'This builder has already been built. Construct a new ClientBuilder for another client.',
+            );
         }
     }
 

@@ -600,7 +600,9 @@ final class Client
             clientInfo: $this->clientInfo,
             clientCapabilities: $this->clientCapabilities,
             progressToken: $progressToken,
-            extras: null === $this->metaExtrasFactory ? [] : array_diff_key(($this->metaExtrasFactory)(), self::LIFECYCLE_META_KEYS),
+            extras: null === $this->metaExtrasFactory
+                ? []
+                : array_diff_key(($this->metaExtrasFactory)(), self::LIFECYCLE_META_KEYS),
         );
     }
 
@@ -717,7 +719,11 @@ final class Client
                 unset($this->toolHeaderBindings[$name]);
                 $this->logger->warning(
                     'Server sent cursor {cursor} again while re-listing tool {tool}, first seen on page {page}, so the refresh stopped.',
-                    ['cursor' => SafeDisplay::sanitise($cursor->cursor), 'tool' => $name, 'page' => $seen[$cursor->cursor]],
+                    [
+                        'cursor' => SafeDisplay::sanitise($cursor->cursor),
+                        'tool' => $name,
+                        'page' => $seen[$cursor->cursor],
+                    ],
                 );
 
                 return;
@@ -820,7 +826,8 @@ final class Client
             try {
                 return $this->exchange($request, $response, $context, $deadline);
             } catch (RemoteCallFailedException $e) {
-                // SEP-2575: the client SHOULD retry once with a version named by the rejection, and never retry the retry.
+                // SEP-2575: the client SHOULD retry once with a version named by the rejection,
+                // and never retry the retry.
                 $retry = $this->renegotiateProtocolVersion($request, $e);
 
                 if (null === $retry) {
@@ -829,7 +836,11 @@ final class Client
 
                 $this->logger->info(
                     'Retrying request {id} as {retry}: the server does not support {requested}.',
-                    ['id' => $request->id->id, 'retry' => $retry->id->id, 'requested' => SafeDisplay::sanitiseCause($e->error->message)],
+                    [
+                        'id' => $request->id->id,
+                        'retry' => $retry->id->id,
+                        'requested' => SafeDisplay::sanitiseCause($e->error->message),
+                    ],
                 );
 
                 return $this->exchange($retry, $response, $context, $deadline);
@@ -896,8 +907,10 @@ final class Client
      *
      * @return null|JsonRpcRequest<TMethod>
      */
-    private function renegotiateProtocolVersion(JsonRpcRequest $request, RemoteCallFailedException $failure): ?JsonRpcRequest
-    {
+    private function renegotiateProtocolVersion(
+        JsonRpcRequest $request,
+        RemoteCallFailedException $failure,
+    ): ?JsonRpcRequest {
         $error = $failure->error;
 
         if (! $error instanceof UnsupportedProtocolVersionError) {

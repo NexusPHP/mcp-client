@@ -268,7 +268,11 @@ final class SupervisedTransport implements ReconnectingTransportInterface
 
         $this->logger->warning(
             'Supervised client transport respawning the peer after an unexpected exit (code {exitCode}), attempt {attempt} of {budget}.',
-            ['exitCode' => $exitCode ?? 'unknown', 'attempt' => $this->restartsInWindow, 'budget' => $this->maxRestarts],
+            [
+                'exitCode' => $exitCode ?? 'unknown',
+                'attempt' => $this->restartsInWindow,
+                'budget' => $this->maxRestarts,
+            ],
         );
 
         $this->respawning = true;

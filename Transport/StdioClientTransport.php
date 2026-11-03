@@ -154,7 +154,11 @@ final class StdioClientTransport implements SupervisableTransportInterface
         // Arguments commonly carry credentials, so only the binary and their count are logged.
         $this->logger->info(
             'Stdio client transport spawned subprocess. Command: {command} ({argumentCount} arguments, PID {pid}).',
-            ['command' => $this->command[0], 'argumentCount' => \count($this->command) - 1, 'pid' => $process->getPid()],
+            [
+                'command' => $this->command[0],
+                'argumentCount' => \count($this->command) - 1,
+                'pid' => $process->getPid(),
+            ],
         );
 
         try {

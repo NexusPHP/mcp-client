@@ -24,6 +24,10 @@ final class InsecureAuthorizationEndpointException extends \RuntimeException imp
 {
     public function __construct(string $label, string $url)
     {
-        parent::__construct(\sprintf('The %s must be served over HTTPS or from a loopback host, "%s" given.', $label, $url));
+        parent::__construct(\sprintf(
+            'The %s must be served over HTTPS or from a loopback host, "%s" given.',
+            $label,
+            $url,
+        ));
     }
 }

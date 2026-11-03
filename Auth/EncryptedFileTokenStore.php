@@ -200,6 +200,9 @@ final readonly class EncryptedFileTokenStore implements TokenStoreInterface
 
     private function refuseWrite(?\JsonException $cause = null): RuntimeException
     {
-        return new RuntimeException(\sprintf('Encrypted token store could not write "%s".', $this->path), previous: $cause);
+        return new RuntimeException(
+            \sprintf('Encrypted token store could not write "%s".', $this->path),
+            previous: $cause,
+        );
     }
 }

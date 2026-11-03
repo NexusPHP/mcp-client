@@ -158,9 +158,9 @@ final readonly class TokenEndpoint
             $error = $this->reader->readErrorField($data, 'error') ?? 'invalid_request';
             $description = $this->reader->readErrorField($data, 'error_description');
 
-            throw match (true) {
-                'invalid_client' === $error => new ClientRegistrationRejectedException($description),
-                \in_array($error, ['invalid_grant', 'invalid_scope'], true) => new AuthorizationGrantRejectedException($error, $description),
+            throw match ($error) {
+                'invalid_client' => new ClientRegistrationRejectedException($description),
+                'invalid_grant', 'invalid_scope' => new AuthorizationGrantRejectedException($error, $description),
                 default => $this->buildTokenFailure($error, $description),
             };
         }
@@ -172,8 +172,12 @@ final readonly class TokenEndpoint
      * @param array<string, mixed> $data
      * @param string               $issuer Stamped on the token so a store can be read back without repeating discovery
      */
-    private function readToken(array $data, string $issuer, ScopeSet $requestedScopes, ?string $priorRefreshToken): AccessToken
-    {
+    private function readToken(
+        array $data,
+        string $issuer,
+        ScopeSet $requestedScopes,
+        ?string $priorRefreshToken,
+    ): AccessToken {
         $type = $this->reader->readRequiredString($data, 'token_type');
 
         if (strcasecmp($type, WwwAuthenticateChallenge::BEARER_SCHEME) !== 0) {
