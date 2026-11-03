@@ -158,11 +158,15 @@ final readonly class TokenEndpoint
             $error = $this->reader->readErrorField($data, 'error') ?? 'invalid_request';
             $description = $this->reader->readErrorField($data, 'error_description');
 
-            throw match ($error) {
-                'invalid_client' => new ClientRegistrationRejectedException($description),
-                'invalid_grant', 'invalid_scope' => new AuthorizationGrantRejectedException($error, $description),
-                default => $this->buildTokenFailure($error, $description),
-            };
+            if ('invalid_client' === $error) {
+                throw new ClientRegistrationRejectedException($description);
+            }
+
+            if ('invalid_grant' === $error || 'invalid_scope' === $error) {
+                throw new AuthorizationGrantRejectedException($error, $description);
+            }
+
+            throw $this->buildTokenFailure($error, $description);
         }
 
         return $this->readToken($data, $metadata->issuer, $requestedScopes, $priorRefreshToken);
