@@ -15,8 +15,13 @@ namespace Nexus\Mcp\Client\Auth;
 
 use Amp\Cancellation;
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Client\Exception\InvalidAuthorizationResponseException;
 use Nexus\Mcp\Client\Exception\PkceNotSupportedException;
 use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
+use Nexus\Mcp\Core\Auth\MetadataReader;
+use Nexus\Mcp\Core\Auth\ScopeSet;
+use Nexus\Mcp\Core\Exception\RuntimeException;
+use Nexus\Mcp\Core\SafeDisplay;
 
 /**
  * The OAuth 2.1 authorization-code grant.
@@ -27,6 +32,8 @@ use Nexus\Mcp\Core\Auth\AuthorizationServerMetadata;
  */
 final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInterface
 {
+    private const int STATE_BYTES = 32;
+
     public function __construct(private UserAuthorizationInterface $userAuthorization)
     {
     }
@@ -43,20 +50,9 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
 
         $registration = $context->resolveRegistration($cancellation);
 
-        $redirect = AuthorizationRequest::build(
-            $context->discovered->server,
-            $registration->clientId,
-            $redirectUri,
-            $context->resource,
-            $context->scopes,
-            new SecureEndpoint($context->options->allowInsecureLoopback),
-            $context->options->skipOfflineAccessConsent,
-        );
+        $redirect = $this->buildRedirect($context, $registration->clientId, $redirectUri);
 
-        $code = AuthorizationResponse::readCode(
-            $redirect,
-            $this->userAuthorization->authorize($redirect, $cancellation),
-        );
+        $code = $this->readCode($redirect, $this->userAuthorization->authorize($redirect, $cancellation));
 
         return $context->requestToken(
             $registration,
@@ -87,6 +83,117 @@ final readonly class AuthorizationCodeGrantStrategy implements GrantStrategyInte
 
         if (null === $methods || ! \in_array(PkcePair::CHALLENGE_METHOD, $methods, true)) {
             throw new PkceNotSupportedException($server->issuer);
+        }
+    }
+
+    /**
+     * Builds the OAuth 2.1 authorization request that the user-agent opens.
+     *
+     * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#authorization-flow-steps
+     */
+    private function buildRedirect(GrantContext $context, string $clientId, string $redirectUri): AuthorizationRedirect
+    {
+        $metadata = $context->discovered->server;
+        $endpoint = $metadata->authorizationEndpoint;
+        Assert::that($endpoint)->isNonEmptyString(\sprintf(
+            'The authorization server "%s" publishes no authorization endpoint.',
+            SafeDisplay::sanitiseCause($metadata->issuer),
+        ));
+        (new SecureEndpoint($context->options->allowInsecureLoopback))
+            ->verifyAuthorizationServerUrl($endpoint, 'authorization endpoint')
+        ;
+
+        $pkce = PkcePair::generate();
+        $state = bin2hex(random_bytes(self::STATE_BYTES));
+
+        $parameters = [
+            'response_type' => 'code',
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+            'state' => $state,
+            'code_challenge' => $pkce->challenge,
+            'code_challenge_method' => PkcePair::CHALLENGE_METHOD,
+            'resource' => $context->resource->value,
+        ];
+
+        $scope = $context->scopes->toParameter();
+
+        if (null !== $scope) {
+            $parameters['scope'] = $scope;
+        }
+
+        if (! $context->options->skipOfflineAccessConsent && $context->scopes->contains(ScopeSet::OFFLINE_ACCESS)) {
+            $parameters['prompt'] = 'consent';
+        }
+
+        return new AuthorizationRedirect(
+            $endpoint.(str_contains($endpoint, '?') ? '&' : '?').http_build_query($parameters),
+            $state,
+            $metadata->issuer,
+            true === $metadata->authorizationResponseIssParameterSupported,
+            $pkce,
+            $context->scopes,
+        );
+    }
+
+    /**
+     * Reads the authorization code from an authorization response once its state and issuer check out.
+     *
+     * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#authorization-response-validation
+     */
+    private function readCode(AuthorizationRedirect $redirect, AuthorizationCallback $callback): string
+    {
+        $reader = new MetadataReader('Authorization response');
+        $parameters = $callback->parameters;
+
+        if (! hash_equals($redirect->state, $parameters['state'] ?? '')) {
+            throw new InvalidAuthorizationResponseException('its "state" does not echo the authorization request.');
+        }
+
+        $this->verifyIssuer($redirect, $parameters);
+
+        $error = $reader->readErrorField($parameters, 'error');
+
+        if (null !== $error) {
+            $description = $reader->readErrorField($parameters, 'error_description');
+
+            throw new RuntimeException(\sprintf(
+                'The authorization server denied the request with "%s"%s',
+                $error,
+                null === $description ? '.' : \sprintf(': %s', $description),
+            ));
+        }
+
+        $code = $parameters['code'] ?? null;
+
+        if (null === $code) {
+            throw new InvalidAuthorizationResponseException('it carries no authorization code.');
+        }
+
+        return $code;
+    }
+
+    /**
+     * @param array<array-key, string> $parameters
+     */
+    private function verifyIssuer(AuthorizationRedirect $redirect, array $parameters): void
+    {
+        $issuer = $parameters['iss'] ?? null;
+
+        if (null === $issuer) {
+            if ($redirect->issuerParameterRequired) {
+                throw new InvalidAuthorizationResponseException(
+                    'it omits the "iss" the authorization server advertises that it emits.',
+                );
+            }
+
+            return;
+        }
+
+        if ($issuer !== $redirect->expectedIssuer) {
+            throw new InvalidAuthorizationResponseException(
+                'its "iss" names an authorization server other than the one the request was sent to.',
+            );
         }
     }
 }

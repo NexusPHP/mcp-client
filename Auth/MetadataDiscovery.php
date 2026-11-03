@@ -37,6 +37,10 @@ use Nexus\Mcp\Core\SafeDisplay;
  */
 final readonly class MetadataDiscovery
 {
+    private const string PROTECTED_RESOURCE_PATH = '/.well-known/oauth-protected-resource';
+    private const string AUTHORIZATION_SERVER_PATH = '/.well-known/oauth-authorization-server';
+    private const string OPENID_CONFIGURATION_PATH = '/.well-known/openid-configuration';
+
     public function __construct(
         private DelegateHttpClient $client,
         private float $timeout = 10.0,
@@ -53,7 +57,7 @@ final readonly class MetadataDiscovery
         ?WwwAuthenticateChallenge $challenge,
         Cancellation $cancellation,
     ): ProtectedResourceMetadata {
-        $candidates = WellKnownUri::forProtectedResource($resource->value);
+        $candidates = self::buildProtectedResourceUrls($resource->value);
         $advertised = $challenge?->readParameter('resource_metadata');
 
         if (null !== $advertised) {
@@ -90,7 +94,7 @@ final readonly class MetadataDiscovery
     public function discoverServer(string $issuer, Cancellation $cancellation): AuthorizationServerMetadata
     {
         $this->secureEndpoint->verifyAuthorizationServerUrl($issuer, 'authorization server issuer');
-        $candidates = WellKnownUri::forAuthorizationServer($issuer);
+        $candidates = self::buildAuthorizationServerUrls($issuer);
 
         foreach ($candidates as $url) {
             $data = $this->fetch($url, 'authorization server metadata URL', $cancellation);
@@ -116,12 +120,61 @@ final readonly class MetadataDiscovery
     }
 
     /**
+     * The Protected Resource Metadata URLs for an MCP endpoint, the path-scoped one first and the only one
+     * keeping the resource identifier's query.
+     *
+     * @return list<string>
+     */
+    public static function buildProtectedResourceUrls(string $resource): array
+    {
+        [$origin, $path, $query] = self::splitOrigin($resource);
+
+        if ('' === $path) {
+            return [$origin.self::PROTECTED_RESOURCE_PATH.$query];
+        }
+
+        return [
+            $origin.self::PROTECTED_RESOURCE_PATH.$path.$query,
+            $origin.self::PROTECTED_RESOURCE_PATH,
+        ];
+    }
+
+    /**
+     * The Authorization Server Metadata URLs for an issuer, RFC 8414 before OpenID Connect Discovery and
+     * path insertion before path appending.
+     *
+     * @return list<string>
+     */
+    public static function buildAuthorizationServerUrls(string $issuer): array
+    {
+        [$origin, $path] = self::splitOrigin($issuer);
+
+        if ('' === $path) {
+            return [
+                $origin.self::AUTHORIZATION_SERVER_PATH,
+                $origin.self::OPENID_CONFIGURATION_PATH,
+            ];
+        }
+
+        return [
+            $origin.self::AUTHORIZATION_SERVER_PATH.$path,
+            $origin.self::OPENID_CONFIGURATION_PATH.$path,
+            $origin.$path.self::OPENID_CONFIGURATION_PATH,
+        ];
+    }
+
+    public static function readOrigin(string $uri): string
+    {
+        return self::splitOrigin($uri)[0];
+    }
+
+    /**
      * Whether a document naming `$named` may be trusted to describe `$resource`, which RFC 9728 extends to
      * the origin that the root well-known URL is assigned to.
      */
     private function describesResource(string $named, string $resource): bool
     {
-        return $named === $resource || WellKnownUri::originOf($resource) === $named;
+        return $named === $resource || self::readOrigin($resource) === $named;
     }
 
     /**
@@ -190,5 +243,31 @@ final readonly class MetadataDiscovery
             SafeDisplay::sanitiseCause($subject),
             implode(', ', array_map(static fn(string $url): string => SafeDisplay::sanitiseCause($url), $probed)),
         ));
+    }
+
+    /**
+     * @return array{string, string, string}
+     */
+    private static function splitOrigin(string $uri): array
+    {
+        $parts = parse_url($uri);
+
+        if (false === $parts || ! isset($parts['scheme'], $parts['host'])) {
+            throw new \InvalidArgumentException(\sprintf(
+                'A well-known metadata URL cannot be built from "%s", which is not an absolute URI.',
+                $uri,
+            ));
+        }
+
+        return [
+            \sprintf(
+                '%s://%s%s',
+                strtolower($parts['scheme']),
+                strtolower($parts['host']),
+                isset($parts['port']) ? ':'.$parts['port'] : '',
+            ),
+            rtrim($parts['path'] ?? '', '/'),
+            isset($parts['query']) ? '?'.$parts['query'] : '',
+        ];
     }
 }
