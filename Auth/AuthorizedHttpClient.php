@@ -320,8 +320,6 @@ final class AuthorizedHttpClient implements DelegateHttpClient
 
     private function readChallenge(Response $response): ?WwwAuthenticateChallenge
     {
-        $header = $response->getHeader('WWW-Authenticate');
-
-        return null === $header ? null : WwwAuthenticateChallenge::findBearer($header);
+        return WwwAuthenticateChallenge::findBearer(implode(', ', $response->getHeaderArray('WWW-Authenticate')));
     }
 }
