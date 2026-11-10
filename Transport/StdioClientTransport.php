@@ -16,6 +16,7 @@ namespace Nexus\Mcp\Client\Transport;
 use Amp\CancelledException;
 use Amp\DeferredCancellation;
 use Amp\Process\ProcessException;
+use Amp\TimeoutCancellation;
 use Nexus\Assert\Assert;
 use Nexus\Mcp\Core\SafeDisplay;
 use Nexus\Mcp\Core\Schema\JsonRpc\JsonRpcMessage;
@@ -75,8 +76,9 @@ final class StdioClientTransport implements SupervisableTransportInterface
     private array $exitListeners = [];
 
     /**
-     * @param non-empty-list<string>     $command Subprocess argv (no shell interpretation).
-     * @param null|array<string, string> $env     Subprocess environment (`null` prunes to a safe allowlist).
+     * @param non-empty-list<string>     $command         Subprocess argv (no shell interpretation).
+     * @param null|array<string, string> $env             Subprocess environment (`null` prunes to a safe allowlist).
+     * @param float                      $shutdownTimeout Seconds to wait for the subprocess to exit on close before killing it
      */
     public function __construct(
         private readonly array $command,
@@ -85,6 +87,7 @@ final class StdioClientTransport implements SupervisableTransportInterface
         private readonly LoggerInterface $logger = new NullLogger(),
         int $maxLineBytes = LineReader::DEFAULT_MAX_LINE_BYTES,
         private readonly SubprocessLauncherInterface $launcher = new AmpSubprocessLauncher(),
+        private readonly float $shutdownTimeout = 2.0,
     ) {
         Assert::that($command)->isList('Stdio client command must be a list, {type} given.');
         Assert::that($command)->hasMinCount(1, 'Stdio client command must not be empty.');
@@ -100,6 +103,12 @@ final class StdioClientTransport implements SupervisableTransportInterface
                 }
 
                 $this->process->getStdin()->close();
+
+                try {
+                    $this->process->join(new TimeoutCancellation($this->shutdownTimeout));
+                } catch (CancelledException|ProcessException) {
+                }
+
                 $this->process->kill();
             },
         );
