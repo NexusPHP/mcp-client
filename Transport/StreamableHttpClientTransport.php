@@ -24,6 +24,7 @@ use Amp\Http\Client\HttpClientBuilder;
 use Amp\Http\Client\Request;
 use Amp\Http\Client\Response;
 use Nexus\Assert\Assert;
+use Nexus\Mcp\Client\Exception\RedirectRefusedException;
 use Nexus\Mcp\Core\Dispatch\PendingCoroutines;
 use Nexus\Mcp\Core\Exception\OutboundRequestFailedException;
 use Nexus\Mcp\Core\Exception\ResponseTooLargeException;
@@ -121,7 +122,7 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
             'Streamable HTTP client maximum response size must be a positive integer, {value} given.',
         );
 
-        $this->client = $client ?? HttpClientBuilder::buildDefault();
+        $this->client = $client ?? (new HttpClientBuilder())->followRedirects(0)->build();
         $this->events = TransportEvents::create($logger, 'Streamable HTTP client');
         $this->exchanges = new PendingCoroutines();
         $this->standardHeaders = new StandardHeaders();
@@ -296,7 +297,15 @@ final class StreamableHttpClientTransport implements AbortableTransportInterface
      */
     private function exchange(JsonRpcMessage $message, array $headers, Cancellation $cancellation): void
     {
-        $response = $this->client->request($this->buildRequest($message, $headers), $cancellation);
+        $request = $this->buildRequest($message, $headers);
+        $sent = $request->getUri();
+        $response = $this->client->request($request, $cancellation);
+        $answered = $response->getRequest()->getUri();
+
+        if ($answered->getScheme() !== $sent->getScheme() || $answered->getAuthority() !== $sent->getAuthority()) {
+            throw new RedirectRefusedException((string) $sent, (string) $answered);
+        }
+
         $status = $response->getStatus();
 
         if (HttpStatus::Accepted->value === $status) {
