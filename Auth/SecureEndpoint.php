@@ -16,6 +16,7 @@ namespace Nexus\Mcp\Client\Auth;
 use Nexus\Mcp\Client\Exception\InsecureAuthorizationEndpointException;
 use Nexus\Mcp\Client\Exception\UntrustedAuthorizationMetadataException;
 use Nexus\Mcp\Core\SafeDisplay;
+use Nexus\Mcp\Core\Validation\Rfc3986UriValidator;
 
 /**
  * Transport-security checks for the URLs that an MCP client is steered at.
@@ -104,9 +105,15 @@ final readonly class SecureEndpoint
      */
     private function parse(string $url): ?array
     {
+        try {
+            Rfc3986UriValidator::validate($url, 'URL');
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
+
         $parts = parse_url($url);
 
-        if (false === $parts || ! isset($parts['scheme'], $parts['host'])) {
+        if (false === $parts || ! isset($parts['scheme'], $parts['host']) || ! $this->isAddressable($parts['host'])) {
             return null;
         }
 
@@ -116,6 +123,33 @@ final readonly class SecureEndpoint
             'path' => $parts['path'] ?? '',
             'fragment' => $parts['fragment'] ?? '',
         ];
+    }
+
+    /**
+     * Refuses a host that names no single peer or that readers disagree on: a percent-encoded name, the
+     * unspecified or IPv4-mapped IPv6 address, and any IPv4 form other than the canonical dotted quad.
+     */
+    private function isAddressable(string $host): bool
+    {
+        if (str_contains($host, '%')) {
+            return false;
+        }
+
+        if (str_starts_with($host, '[')) {
+            $address = (string) inet_pton(trim($host, '[]'));
+
+            return str_repeat("\0", 16) !== $address && ! str_starts_with($address, str_repeat("\0", 10)."\xFF\xFF");
+        }
+
+        // WHATWG URL: one trailing dot is dropped before a host is parsed as IPv4.
+        $name = str_ends_with($host, '.') ? substr($host, 0, -1) : $host;
+
+        if (preg_match('/\A(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+))*\z/i', $name) !== 1) {
+            return true;
+        }
+
+        return '0.0.0.0' !== $host
+            && preg_match('/\A(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\z/', $host) === 1;
     }
 
     /**
