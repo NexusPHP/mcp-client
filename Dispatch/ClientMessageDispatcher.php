@@ -327,7 +327,7 @@ final readonly class ClientMessageDispatcher implements MessageDispatcherInterfa
 
         $this->coroutines->track(async(function () use ($request, $transport, $method, $cancellation): void {
             try {
-                $sender = new RequestBoundSender($transport, $request->id);
+                $sender = new RequestBoundSender($transport, $request->id, $cancellation);
 
                 $context = new ClientContext(
                     $request->id,
